@@ -16,25 +16,24 @@
 #include <Adafruit_BNO055.h>
 #include <utility/imumaths.h>
 
-// --- 핀 설정 (L298N 모터 드라이버 및 인코더 예시) ---
-// 실제 결선에 맞게 핀 번호를 변경하세요.
-#define ENA 14  // 모터 속도 제어 (PWM)
-#define IN1 27  // 모터 방향 1
-#define IN2 26  // 모터 방향 2
-#define ENCA 34 // 인코더 A (인터럽트 핀)
-#define ENCB 35 // 인코더 B
+// 핀 맵 헤더 포함
+#include "pinmap.h"
 
 // --- 전역 변수 ---
-volatile long encoder_ticks = 0;
+volatile long left_encoder_ticks = 0;
+volatile long right_encoder_ticks = 0;
+
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28, &Wire);
 
 // --- micro-ROS 객체 ---
 rcl_publisher_t imu_publisher;
-rcl_publisher_t encoder_publisher;
+rcl_publisher_t left_encoder_publisher;
+rcl_publisher_t right_encoder_publisher;
 rcl_subscription_t cmd_vel_subscriber;
 
 sensor_msgs__msg__Imu imu_msg;
-std_msgs__msg__Int32 encoder_msg;
+std_msgs__msg__Int32 left_encoder_msg;
+std_msgs__msg__Int32 right_encoder_msg;
 geometry_msgs__msg__Twist twist_msg;
 
 rclc_executor_t executor;
@@ -47,7 +46,7 @@ rcl_timer_t timer;
 #define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){error_loop();}}
 #define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
 
-// 에러 발생 시 무한 루프 (ESP32 내장 LED를 깜빡이게 추가하면 디버깅에 좋음)
+// 에러 발생 시 무한 루프
 void error_loop(){
   while(1){
     delay(100);
@@ -55,45 +54,62 @@ void error_loop(){
 }
 
 // --- 인터럽트 서비스 루틴 (인코더) ---
-void IRAM_ATTR updateEncoder() {
-  if (digitalRead(ENCB) > 0) {
-    encoder_ticks++;
+void IRAM_ATTR updateLeftEncoder() {
+  if (digitalRead(ENCODER_LEFT_B) > 0) {
+    left_encoder_ticks++;
   } else {
-    encoder_ticks--;
+    left_encoder_ticks--;
   }
 }
 
-// --- 콜백 1: 라즈베리파이 -> ESP32 (cmd_vel 수신 및 모터 제어) ---
+void IRAM_ATTR updateRightEncoder() {
+  if (digitalRead(ENCODER_RIGHT_B) > 0) {
+    right_encoder_ticks++;
+  } else {
+    right_encoder_ticks--;
+  }
+}
+
+// --- 모터 제어 유틸리티 함수 ---
+void setMotorSpeed(int ena, int in1, int in2, int speed) {
+  speed = constrain(speed, -255, 255);
+  if (speed > 0) {
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+  } else if (speed < 0) {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+  } else {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);
+  }
+  analogWrite(ena, abs(speed));
+}
+
+// --- 콜백 1: cmd_vel 수신 및 디퍼런셜 드라이브 제어 ---
 void cmd_vel_callback(const void * msgin) {
   const geometry_msgs__msg__Twist * msg = (const geometry_msgs__msg__Twist *)msgin;
   
-  float linear_x = msg->linear.x; // 전진/후진 속도
+  float linear_x = msg->linear.x;   // 전진/후진 (m/s)
+  float angular_z = msg->angular.z; // 회전 (rad/s)
   
-  // 간단한 스케일링 (실제 주행 시 모터 스펙에 맞춰 튜닝 필요)
-  int pwm_val = map(abs(linear_x * 100), 0, 100, 0, 255); 
-  if (pwm_val > 255) pwm_val = 255;
+  // 간단한 디퍼런셜 믹싱 (로봇의 실제 물리 파라미터에 따라 255.0 스케일 조정 필요)
+  float l_speed = (linear_x - angular_z) * 255.0;
+  float r_speed = (linear_x + angular_z) * 255.0;
   
-  if (linear_x > 0) { // 전진
-    digitalWrite(IN1, HIGH);
-    digitalWrite(IN2, LOW);
-  } else if (linear_x < 0) { // 후진
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, HIGH);
-  } else { // 정지
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, LOW);
-    pwm_val = 0;
-  }
-  analogWrite(ENA, pwm_val);
+  setMotorSpeed(MOTOR_LEFT_ENA, MOTOR_LEFT_IN1, MOTOR_LEFT_IN2, (int)l_speed);
+  setMotorSpeed(MOTOR_RIGHT_ENB, MOTOR_RIGHT_IN3, MOTOR_RIGHT_IN4, (int)r_speed);
 }
 
-// --- 콜백 2: ESP32 -> 라즈베리파이 (센서 데이터 전송) ---
+// --- 콜백 2: 센서 데이터 발행 (Timer) ---
 void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
     // 1. 인코더 데이터 퍼블리시
-    encoder_msg.data = encoder_ticks;
-    RCSOFTCHECK(rcl_publish(&encoder_publisher, &encoder_msg, NULL));
+    left_encoder_msg.data = left_encoder_ticks;
+    right_encoder_msg.data = right_encoder_ticks;
+    RCSOFTCHECK(rcl_publish(&left_encoder_publisher, &left_encoder_msg, NULL));
+    RCSOFTCHECK(rcl_publish(&right_encoder_publisher, &right_encoder_msg, NULL));
 
     // 2. BNO055 IMU 데이터 퍼블리시
     // 쿼터니언 (방향)
@@ -103,13 +119,13 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
     imu_msg.orientation.y = quat.y();
     imu_msg.orientation.z = quat.z();
 
-    // 자이로스코프 (각속도, rad/s)
+    // 자이로스코프 (각속도)
     imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
     imu_msg.angular_velocity.x = gyro.x();
     imu_msg.angular_velocity.y = gyro.y();
     imu_msg.angular_velocity.z = gyro.z();
 
-    // 선형 가속도 (중력 제외, m/s^2)
+    // 선형 가속도
     imu::Vector<3> linearaccel = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
     imu_msg.linear_acceleration.x = linearaccel.x();
     imu_msg.linear_acceleration.y = linearaccel.y();
@@ -120,76 +136,76 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time) {
 }
 
 void setup() {
-  // USB-C Serial을 통한 micro-ROS 통신 설정 (라즈베리파이와 연결)
+  // micro-ROS 통신 설정
   set_microros_transports();
   
-  // 핀 초기화
-  pinMode(ENA, OUTPUT);
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-  pinMode(ENCA, INPUT_PULLUP);
-  pinMode(ENCB, INPUT_PULLUP);
+  // I2C 핀 설정 및 초기화
+  Wire.begin(IMU_SDA, IMU_SCL);
+  
+  // 모터 핀 초기화
+  pinMode(MOTOR_LEFT_ENA, OUTPUT);
+  pinMode(MOTOR_LEFT_IN1, OUTPUT);
+  pinMode(MOTOR_LEFT_IN2, OUTPUT);
+  pinMode(MOTOR_RIGHT_ENB, OUTPUT);
+  pinMode(MOTOR_RIGHT_IN3, OUTPUT);
+  pinMode(MOTOR_RIGHT_IN4, OUTPUT);
+  
+  // 인코더 핀 초기화
+  // 주의: 34, 35번 핀은 ESP32에서 Input Only이며 내부 풀업이 없으므로 회로상 풀업 저항 필요
+  pinMode(ENCODER_LEFT_A, INPUT_PULLUP);
+  pinMode(ENCODER_LEFT_B, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_A, INPUT_PULLUP);
+  pinMode(ENCODER_RIGHT_B, INPUT_PULLUP);
   
   // 인코더 인터럽트 설정
-  attachInterrupt(digitalPinToInterrupt(ENCA), updateEncoder, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A), updateLeftEncoder, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), updateRightEncoder, RISING);
 
   // BNO055 IMU 초기화
   if (!bno.begin()) {
-    // BNO055 연결 실패 시 무한 루프
-    while (1) {
-      delay(10);
-    }
+    while (1) { delay(10); }
   }
   delay(1000);
-  bno.setExtCrystalUse(true); // 외부 크리스탈 사용으로 정확도 향상
+  bno.setExtCrystalUse(true);
 
   allocator = rcl_get_default_allocator();
 
   // micro-ROS 초기화
   RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
-  RCCHECK(rclc_node_init_default(&node, "esp32_rover_node", "", &support));
+  RCCHECK(rclc_node_init_default(&node, "esp32_slam_rover", "", &support));
 
-  // 퍼블리셔 생성 (IMU, Encoder)
+  // 퍼블리셔 생성
   RCCHECK(rclc_publisher_init_default(
-    &imu_publisher,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
-    "rover/imu"));
-
+    &imu_publisher, &node, 
+    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu/data"));
   RCCHECK(rclc_publisher_init_default(
-    &encoder_publisher,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
-    "rover/encoder_ticks"));
+    &left_encoder_publisher, &node, 
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32), "encoder/left"));
+  RCCHECK(rclc_publisher_init_default(
+    &right_encoder_publisher, &node, 
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32), "encoder/right"));
 
-  // 서브스크라이버 생성 (cmd_vel)
+  // 서브스크라이버 생성
   RCCHECK(rclc_subscription_init_default(
-    &cmd_vel_subscriber,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
-    "cmd_vel"));
+    &cmd_vel_subscriber, &node, 
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist), "cmd_vel"));
 
-  // 타이머 생성 (20Hz = 50ms 주기로 센서 데이터 전송)
+  // 타이머 생성 (20Hz)
   const unsigned int timer_timeout = 50;
-  RCCHECK(rclc_timer_init_default(
-    &timer,
-    &support,
-    RCL_MS_TO_NS(timer_timeout),
-    timer_callback));
+  RCCHECK(rclc_timer_init_default(&timer, &support, RCL_MS_TO_NS(timer_timeout), timer_callback));
 
-  // Executor 생성 (핸들 개수: 타이머 1개 + 서브스크라이버 1개 = 2)
+  // Executor 설정 (타이머 1개 + 서브스크라이버 1개 = 2개 핸들)
   RCCHECK(rclc_executor_init(&executor, &support.context, 2, &allocator));
   RCCHECK(rclc_executor_add_timer(&executor, &timer));
   RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_subscriber, &twist_msg, &cmd_vel_callback, ON_NEW_DATA));
   
-  // IMU 메시지 frame_id 설정 (선택 사항이지만 tf 변환할 때 유용함)
-  imu_msg.header.frame_id.data = (char * )"imu_link";
+  // 메시지 헤더 설정
+  imu_msg.header.frame_id.data = (char *)"imu_link";
   imu_msg.header.frame_id.size = strlen(imu_msg.header.frame_id.data);
   imu_msg.header.frame_id.capacity = imu_msg.header.frame_id.size + 1;
 }
 
 void loop() {
   delay(10);
-  // micro-ROS 이벤트 루프 실행
   RCSOFTCHECK(rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10)));
 }
