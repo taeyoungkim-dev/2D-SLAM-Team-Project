@@ -1,43 +1,37 @@
-# ESP32 SLAM 구동을 위한 기초 설계 계획
+# ESP32 SLAM 로봇: 인터페이스 중심 설계 명세서
 
-본 문서는 micro-ROS가 탑재된 ESP32 환경에서 SLAM(Simultaneous Localization and Mapping)을 구현하기 위한 기초 코드 설계 및 단계별 계획을 담고 있습니다.
+본 아키텍처는 하드웨어 종속성(Pin, Peripheral)을 상위 ROS 로직으로부터 완전히 격리하여, 하드웨어가 변경되어도 상위 노드 코드를 수정할 필요가 없는 **인터페이스 기반 설계**를 지향합니다.
 
-## 1. 개요
-- **목표**: ESP32를 통해 센서 데이터를 수집하고, micro-ROS를 통해 상위 노드(PC/Raspberry Pi)의 SLAM 패키지(예: Slam Toolbox, Cartographer)와 연동.
-- **주요 구성**:
-    - 하드웨어: 모터 드라이버, 엔코더, IMU 센서, LiDAR.
-    - 소프트웨어: micro-ROS (ESP32), ROS2 (Host PC).
+## 1. 계층 구조 (Layered Architecture)
 
-## 2. 주요 모듈 및 파일 구조 (user_code/)
-- `motor_control.c/h`: 엔코더 피드백을 포함한 모터 제어 및 PID 제어.
-- `odometry.c/h`: 엔코더 및 IMU 데이터를 활용한 오도메트리(Odometry) 계산.
-- `lidar_interface.c/h`: LiDAR 데이터 수신 및 `sensor_msgs/msg/LaserScan` 메시지 변환.
-- `main_slam.c`: micro-ROS 노드 생성 및 각 모듈 통합.
+### 1.1 ROS Node Layer (`main_slam.c`)
+- **역할**: ROS2 토픽 관리, 기구학(Kinematics) 계산, 데이터 발행/구독.
+- **특징**: `pinmap.h`를 포함하지 않음. 오직 `robot_hw.h` 인터페이스만 호출.
+- **단위**: 모든 데이터는 SI 단위($m, rad, m/s, rad/s$)로 처리.
 
-## 3. 구현 단계별 계획
+### 1.2 Hardware Interface Layer (`robot_hw.h/c`)
+- **역할**: 구체적인 핀 제어, 센서 통신(I2C/UART), PID 제어 수행.
+- **특징**: 상위 계층에 추상화된 함수 제공. 내부적으로 `pinmap.h` 및 하드웨어 드라이버 사용.
+- **주요 인터페이스**:
+    - `hw_motors_set_velocity(float left, float right)`: 목표 선속도 설정.
+    - `hw_encoders_get_state(float *l_dist, float *r_dist)`: 누적 이동 거리 획득.
+    - `hw_imu_get_data(imu_data_t *data)`: 가속도/각속도 획득.
+    - `hw_lidar_get_scan(float *ranges)`: 레이저 스캔 데이터 획득.
 
-### Phase 1: 기반 인프라 구축
-- [ ] 모터 및 엔코더 드라이버 작성 (PWM 제어, 인터럽트 기반 엔코더 카운트).
-- [ ] PID 제어를 통한 일정한 속도 유지 구현.
+---
 
-### Phase 2: 센서 데이터 수집 및 micro-ROS 연동
-- [ ] IMU(MPU6050/9250) 드라이버 연동 및 가속도/자이로 데이터 추출.
-- [ ] LiDAR 데이터 수신 및 파싱 (UART 통신).
-- [ ] micro-ROS 퍼블리셔(Publisher) 설정:
-    - `/odom` (nav_msgs/msg/Odometry)
-    - `/scan` (sensor_msgs/msg/LaserScan)
-    - `/tf` (tf2_msgs/msg/TFMessage)
+## 2. ROS2 토픽 인터페이스
 
-### Phase 3: Odometry 계산 로직 최적화
-- [ ] Differential Drive 기구학을 적용한 좌표 계산.
-- [ ] IMU 데이터를 활용한 EKF(Extended Kalman Filter) 기반 오도메트리 보정 (PC 측에서 처리하거나 ESP32에서 단순 융합).
+| 토픽 명칭 | 메시지 타입 | 하드웨어 인터페이스 연결 |
+| :--- | :--- | :--- |
+| `/cmd_vel` | `Twist` | `hw_motors_set_velocity()` 호출 |
+| `/odom` | `Odometry` | `hw_encoders_get_state()` 데이터 기반 계산 |
+| `/imu/data_raw` | `Imu` | `hw_imu_get_data()` 데이터 변환 |
+| `/scan` | `LaserScan` | `hw_lidar_get_scan()` 데이터 매핑 |
 
-### Phase 4: 호스트 PC 연동 및 SLAM 실행
-- [ ] micro-ROS Agent 실행.
-- [ ] `slam_toolbox` 또는 `gmapping` 설정 파일 작성.
-- [ ] Rviz2를 통한 지도 생성 및 로봇 경로 시각화 확인.
+---
 
-## 4. 고려 사항
-- **메모리 관리**: ESP32의 SRAM 제약으로 인해 큰 크기의 LaserScan 배열 처리에 유의.
-- **통신 대역폭**: UART(micro-ROS) 속도를 최대로 설정(예: 921600 bps)하여 데이터 지연 최소화.
-- **전력 공급**: 모터 구동 시 발생하는 노이즈가 MCU 및 센서에 미치는 영향 방지.
+## 3. 작동 데이터 흐름 (Data Flow)
+
+1.  **명령(Downstream)**: `PC(/cmd_vel)` -> `main_slam(Kinematics)` -> `robot_hw(PID Control)` -> `Motors(PWM)`
+2.  **피드백(Upstream)**: `Sensors(Raw)` -> `robot_hw(Unit Conversion)` -> `main_slam(Pose Estimation)` -> `PC(/odom, /scan, /imu)`

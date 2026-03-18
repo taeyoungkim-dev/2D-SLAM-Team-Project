@@ -8,8 +8,8 @@ typedef struct {
     float gx, gy, gz; // 각속도 (rad/s)
 } imu_data_t;
 
-// IMU 초기화 (I2C 설정 및 센서 기동)
-int imu_init(void);
+// IMU 초기화 (I2C 핀 주입)
+int imu_init(int sda_pin, int scl_pin);
 
 // 최신 IMU 데이터 읽기
 int imu_read_data(imu_data_t *data);
