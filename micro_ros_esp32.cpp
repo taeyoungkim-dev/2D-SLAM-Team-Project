@@ -260,6 +260,9 @@ void cmd_vel_callback(const void * msgin) {
     left_target_rad_s = left_wheel_linear / WHEEL_RADIUS_M;
     right_target_rad_s = right_wheel_linear / WHEEL_RADIUS_M;
   }
+
+  right_target_rad_s *= 0.946f;
+
   setTargetWheelSpeeds(left_target_rad_s, right_target_rad_s);
 
   last_cmd_vel_ms = millis();
