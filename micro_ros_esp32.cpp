@@ -39,7 +39,7 @@ portMUX_TYPE encoder_mux = portMUX_INITIALIZER_UNLOCKED;
 //바퀴 반지름
 constexpr float WHEEL_RADIUS_M = 0.033f;
 //두 바퀴 거리
-constexpr float WHEEL_BASE_M = 0.134f;
+constexpr float WHEEL_BASE_M = 0.400f;
 //바퀴 최대 각속도
 constexpr float MAX_WHEEL_ANGULAR_SPEED_RAD_S = 20.0f;
 //바퀴 최대 선속도
