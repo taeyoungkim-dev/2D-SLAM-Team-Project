@@ -27,3 +27,9 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/esp32
 ros2 launch rover_bringup bringup.launch.py
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
+
+
+#시계반대 각속도 1 명령
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{angular: {z: 1.0}}"
+# yaw 속도 확인
+ros2 topic echo /imu --qos-reliability best_effort --field angular_velocity.z
