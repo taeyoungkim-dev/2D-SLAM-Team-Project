@@ -37,7 +37,7 @@ Gazebo 첫 실행 시 모델 다운로드로 인한 응답 없음(Timeout) 현�
 Bash
 cd ~/.gazebo
 rm -rf models
-git clone [https://github.com/osrf/gazebo_models.git](https://github.com/osrf/gazebo_models.git) models
+git clone https://github.com/osrf/gazebo_models.git models
 1.4 환경 변수 설정 (~/.zshrc)
 TurtleBot3 Waffle Pi 모델을 기본으로 사용하도록 zsh 환경에 등록합니다.
 
