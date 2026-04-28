@@ -97,8 +97,9 @@ ros2 run turtlebot3_teleop teleop_keyboard
 ### [Treminal 4] RGB 공 소환
 
 색이 다른 공 3개를 맵 안에 소환합니다.
-맵의 입구가 뚫려있기 때문에 입구를 막을 Entrance blocker도 같이 소환합니다.
+맵의 입구가 뚫려있기 때문에 입구를 막을 door_blocker도 같이 소환합니다.
 공의 위치는 assets/objects/spawn_rgb_balls.launch.py에서 수정하거나 gazebo 환경에서 수동으로 옮겨도 됩니다.
+door_blocker도 마찬가지로 수정가능합니다.
 ```zsh
 #반드시 2D-SLAM-TEAM-PROJECT 폴더에서 실행할 것
 ros2 launch ./assets/objects/spawn_rgb_balls.launch.py
