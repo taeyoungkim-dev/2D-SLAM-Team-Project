@@ -1,0 +1,21 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="green_ball">
+    <static>false</static>
+    <link name="link">
+      <pose>0 0 0.15 0 0 0</pose>
+      <collision name="collision">
+        <geometry><sphere><radius>0.15</radius></sphere></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry><sphere><radius>0.15</radius></sphere></geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>Gazebo/Green</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

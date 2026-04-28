@@ -94,6 +94,14 @@ ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
 ros2 run turtlebot3_teleop teleop_keyboard
 ```
 
+### [Treminal 4] RGB 공 소환
+
+색이 다른 공 3개를 맵 안에 소환합니다.
+공의 위치는 assets/objects/spawn_rgb_balls.launch.py에서 수정하거나 gazebo 환경에서 수동으로 옮겨도 됩니다.
+```zsh
+#반드시 2D-SLAM-TEAM-PROJECT 폴더에서 실행할 것
+ros2 launch ./assets/objects/spawn_rgb_balls.launch.py
+```
 ---
 
 ## 💾 3. Save the Map (지도 저장하기)
