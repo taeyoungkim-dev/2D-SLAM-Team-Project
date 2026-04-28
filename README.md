@@ -20,6 +20,7 @@
 
 ```zsh
 # 신형 Gazebo 패키지 및 찌꺼기 제거
+# 신형 Gazebo가 깔려있지 않다면 스킵해도 됨.
 sudo apt remove -y gz-tools2 "^ignition-*" "^libignition-*" "^libgz-*"
 sudo apt autoremove -y
 sudo apt update --fix-missing
