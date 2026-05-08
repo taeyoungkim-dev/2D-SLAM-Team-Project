@@ -77,16 +77,13 @@ source ~/.zshrc
 cd ~/workspace/2D-SLAM-Team-Project
 cp /opt/ros/humble/share/turtlebot3_navigation2/param/waffle_pi.yaml ./custom_waffle_pi.yaml
 ```
-2. Vim 편집기를 통한 문법 수정
+2. 문법 수정
+
+모든 ::을 \로 바꾸기
 
 ```zsh
-vim custom_waffle_pi.yaml
+sed -i 's/nav2_behaviors::/nav2_behaviors\//g' custom_waffle_pi.yaml
 ```
-에디터에서 /NavfnPlanner를 검색하여 아래와 같이 플러그인 경로 명칭을 수정한다.
-
-수정 전: plugin: "nav2_navfn_planner::NavfnPlanner"
-
-수정 후: plugin: "nav2_navfn_planner/NavfnPlanner"
 
 3. 수정된 커스텀 파라미터 파일로 Nav2 재실행
 기본 파일 경로 대신, 수정한 ./custom_waffle_pi.yaml 파일 경로를 지정하여 Nav2 엔진을 켠다.
