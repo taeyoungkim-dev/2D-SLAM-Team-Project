@@ -77,12 +77,17 @@ source ~/.zshrc
 cd ~/workspace/2D-SLAM-Team-Project
 cp /opt/ros/humble/share/turtlebot3_navigation2/param/waffle_pi.yaml ./custom_waffle_pi.yaml
 ```
+
 2. 문법 수정
 
 ```zsh
 sed -i 's/nav2_navfn_planner::NavfnPlanner/nav2_navfn_planner\/NavfnPlanner/g' custom_waffle_pi.yaml
 sed -i 's/nav2_behaviors::/nav2_behaviors\//g' custom_waffle_pi.yaml
 ```
+
+3. threshold 수정
+
+inflation_radius: 0.2
 
 ## 🚀 2. How to Run (실행 방법)
 
@@ -135,7 +140,8 @@ ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./
 로봇이 미지의 영역(Frontier)을 스스로 찾아다니며 맵을 100% 완성합니다.
 ```zsh
 source install/setup.zsh
-ros2 launch explore_lite explore.launch.py use_sim_time:=true robot_base_frame:=base_link min_frontier_size:=0.2
+#min_frontier_size는 맵 마다 조정
+ros2 run explore_lite explore --ros-args -p use_sim_time:=true -p robot_base_frame:=base_link -p min_frontier_size:=0.2 -p costmap_topic:=/global_costmap/costmap
 ```
 
 **옵션 B: 수동 조종 (Teleop)**

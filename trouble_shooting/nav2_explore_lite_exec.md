@@ -128,9 +128,134 @@ default 세팅은 min_frontier_size:=0.75
 너무 큼
 min_frontier_size:=0.2로 줄이기
 
+```zsh
+ros2 launch explore_lite explore.launch.py use_sim_time:=true robot_base_frame:=base_link min_frontier_size:=0.2
+```
+
+시도했음에도
+```zsh
+[explore-1] [WARN] [1778213678.750202368] [explore_node]: No frontiers found, stopping. 
+```
+같은 에러 발생
+
+---
+
+원인 재분석
+
+현재 사용하는 라이브러리
+- turtlebot3
+- Nav2
+- explore_lite
+
+nav2에서 costmap에 margin을 크게 붙여서 explore_lite에서 min_frontier_size를 작게 설정해도 frontier를 찾을 수 없었다고 가정
+
+따라서 nav2의 margin을 작게 수정
+
+해결 방법
+
+custom_waffle_pi.yaml 에서
+inflation_radius: 0.5
+의 값들을
+inflation_radius: 0.1
+로 수정
+
+에러 발생
+```zsh
+[explore-1] [WARN] [1778478746.985216281] [explore_node]: [FrontierSearch] Could not find nearby clear cell to start search
+[explore-1] [WARN] [1778478746.992391230] [explore_node]: No frontiers found, stopping.
+```
+---
+
+원인 재분석
+'Could not find nearby clear cell to start search'라는 log는 로봇의 바로 주변 범위
+map이 그려지지 않아서 발생하는 문제라고 가정
+
+로봇을 수동으로 조금씩 움직여서 로봇 발 밑의 map을 채워넣기
+
+해결방법
+
+nav2를 실행하고 나서 수동 조종으로 map 조금 채워넣고 explore_lite 실행
+
+에러발생
+```zsh
+[explore-1] [WARN] [1778493446.874897806] [explore_node]: [FrontierSearch] Could not find nearby clear cell to start search
+[explore-1] [WARN] [1778493446.877085259] [explore_node]: No frontiers found, stopping.
+```
+---
+
+원인 재분석
+
+현재 explore_lite는 /map 토픽을 기준으로 frontier를 찾고 있다.
+/map은 ros2 cartographer에서 확률 적으로 값을 부여받음.
+하지만 ros1에서는 0,1 binary 값으로 /map이 생성되었음.
+explore_lite는 binary map 방식으로 frontier를 만들기 때문에
+확률적 int값을 가지고 있는 /map을 쓰지 않고 /costmap을 써서 해결할 수 있을 것이다.
+
+해결방법
+
+```zsh
+ros2 launch explore_lite explore.launch.py use_sim_time:=true robot_base_frame:=base_link min_frontier_size:=0.2 costmap_topic:=/global_costmap/costmap
+```
+/global_costmap/costmap 파라미터 옵션 추가
+
+에러발생
+```zsh
+[explore-1] [WARN] [1778494821.637382660] [explore_node]: [FrontierSearch] Could not find nearby clear cell to start search
+[explore-1] [WARN] [1778494821.640963177] [explore_node]: No frontiers found, stopping.
+```
+---
+
+원인
+
+```zsh
+[explore_node]: Waiting for costmap to become available, topic: map
+```
+위 log를 보면 아직도 /map을 참고해서 frontier를 생성하는 것을 알 수 있음.
+따라서 costmap_topic:=/global_costmap/costmap 명령어가 적용되지 않을 것을 알 수 있음.
+애초에 그런 파라미터를 만들어 놓지 않은듯
+
+해결방법
+
+```zsh
+ros2 run explore_lite explore --ros-args -p use_sim_time:=true -p robot_base_frame:=base_link -p min_frontier_size:=0.2 -p costmap_topic:=/global_costmap/costmap
+```
+ros2 강제 파라미터 주입 명령어 --ros-args -p를 사용해서 costmap 파라미터 강제 주입
+
+문제 발생
+
+터틀봇이 탐사를 하긴 하지만 벽에 박으면서 탐사를 함.
+
+---
+
+원인 분석
+
+이전에 변경한 custom_waffle_pi.yaml 파일의 inflation_radius와 min_frontier_size 파리미터 변경으로 탐사가 불가능한 좁은 곳도 탐사하려고 해서 문제가 발생하는 것으로 추측
+
+해결방법
+
+이전에 변경한 custom_waffle_pi.yaml 파일의 inflation_radius를 0.5로 되돌리고
+min_frontier_size:=0.2 파라미터를 빼기
+```zsh
+ros2 run explore_lite explore --ros-args -p use_sim_time:=true -p robot_base_frame:=base_link -p min_frontier_size:=0.5 -p costmap_topic:=/global_costmap/costmap
+```
+custom_waffle_pi.yaml에서
+```
+inflation_radius: 0.25
+```
+로 수정
+
 
 ### 해결
 
+custom_waffle_pi.yaml에서
+```
+inflation_radius: 0.25
+```
+로 수정
+
+and
+
+explore_lite 실행 명령어 수정
 ```zsh
-ros2 launch explore_lite explore.launch.py use_sim_time:=true robot_base_frame:=base_link min_frontier_size:=0.2
+ros2 run explore_lite explore --ros-args -p use_sim_time:=true -p robot_base_frame:=base_link -p min_frontier_size:=0.5 -p costmap_topic:=/global_costmap/costmap
 ```
