@@ -79,17 +79,9 @@ cp /opt/ros/humble/share/turtlebot3_navigation2/param/waffle_pi.yaml ./custom_wa
 ```
 2. 문법 수정
 
-모든 ::을 \로 바꾸기
-
 ```zsh
+sed -i 's/nav2_navfn_planner::NavfnPlanner/nav2_navfn_planner\/NavfnPlanner/g' custom_waffle_pi.yaml
 sed -i 's/nav2_behaviors::/nav2_behaviors\//g' custom_waffle_pi.yaml
-```
-
-3. 수정된 커스텀 파라미터 파일로 Nav2 재실행
-기본 파일 경로 대신, 수정한 ./custom_waffle_pi.yaml 파일 경로를 지정하여 Nav2 엔진을 켠다.
-
-```zsh
-ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_waffle_pi.yaml
 ```
 
 ## 🚀 2. How to Run (실행 방법)
