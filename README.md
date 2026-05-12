@@ -65,8 +65,9 @@ git clone https://github.com/osrf/gazebo_models.git models
 ### 1.4 환경 변수 설정 (`~/.zshrc`)
 TurtleBot3 Waffle Pi 모델을 기본으로 사용하도록 `zsh` 환경에 등록합니다.
 
+자신의 환경이 bash인지 zsh인지 체크해야함!
 ```zsh
-echo "export TURTLEBOT3_MODEL=waffle_pi" >> ~/.zshrc
+echo "export TURTLEBOT3_MODEL=burger" >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -75,7 +76,7 @@ source ~/.zshrc
 
 ```zsh
 cd ~/workspace/2D-SLAM-Team-Project
-cp /opt/ros/humble/share/turtlebot3_navigation2/param/waffle_pi.yaml ./custom_waffle_pi.yaml
+cp cp /opt/ros/humble/share/turtlebot3_navigation2/param/humble/burger.yaml ./custom_burger.yaml
 ```
 
 2. 문법 수정
@@ -98,7 +99,7 @@ inflation_radius: 0.2
 원하는 맵을 선택하여 가상 환경과 로봇을 소환합니다. (기본값: House 맵)
 
 ```zsh
-export TURTLEBOT3_MODEL=waffle_pi
+export TURTLEBOT3_MODEL=burger
 
 # 1. House Map (SLAM 테스트 권장)
 ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py
@@ -122,7 +123,7 @@ ros2 launch ./assets/objects/spawn_rgb_balls.launch.py
 로봇의 LiDAR 센서 데이터를 시각화하고 지도를 그리기 시작합니다. 가상 환경 동기화를 위해 반드시 `use_sim_time:=true` 파라미터를 추가해야 합니다.
 
 ```zsh
-export TURTLEBOT3_MODEL=waffle_pi
+export TURTLEBOT3_MODEL=burger
 ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
 ```
 > **Tip:** RViz2 창이 열리면 왼쪽 하단 `Add` 버튼을 눌러 `By topic` 탭에서 `/camera/image_raw`를 추가하면 로봇의 1인칭 카메라 뷰를 실시간으로 확인할 수 있습니다.
@@ -131,8 +132,8 @@ ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
 자율 탐색 시 장애물을 회피하며 주행하기 위해 Nav2 엔진을 켭니다. ROS 2 버전 호환성을 위해 수정된 커스텀 파라미터 파일(`custom_waffle_pi.yaml`)을 사용합니다.
 
 ```zsh
-export TURTLEBOT3_MODEL=waffle_pi
-ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_waffle_pi.yaml
+export TURTLEBOT3_MODEL=burger
+ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger.yaml
 ```
 
 ### [Terminal 5] 자율 탐색 (Explore Lite) 또는 수동 조종

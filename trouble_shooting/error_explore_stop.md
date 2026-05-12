@@ -52,6 +52,61 @@ or
 
 둘 중 어느것이 원인인지 밝혀야 한다.
 
+/scripts/frontier_logger.py를 통해 아무런 frontier_log가 나오지 않는 것을 확인. 하지만 로봇은 방 안에서 움직이고 있으므로 explore_lite 내부에서 frontier topic을 의도적으로 숨긴 것으로 추정됨.
+
+정보 검색 중 explore_lite github에서 tb3 burger로 잘 동작하는 것을 확인.
+따라서 모델을 burger로 변경해서 실험해보려고 함.
+
+---
+모델을 burger로 변경하는 과정
+
+
+/param 안에 /humble 이라는 폴더가 있는 것을 발견. 그 안에 humble에 맞는 정상적인 .yaml 파일을 발견
+
+nav2 실행 명령어를 수정하여 burger 기준으로 param을 줄 수 있도록 수정
+```zsh
+ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=true params_file:=/opt/ros/humble/share/turtlebot3_navigation2/param/humble/burger.yaml
+```
+
+zshrc 파일을 수정
+```
+export TURTLEBOT3_MODEL=burger
+```
+
+---
+문제 발생
+
+로봇를 burger로 교체하여도 방 입구를 지나갈 수 없음.
+
+---
+원인 분석
+
+![Error : Can not load error_map_2.png](/assets/images/error_map_2.png)
+
+위 이미지를 보면 돌 수 있는 벽의 안전구역 margin이 보라색으로 크게 펼쳐져 있는 것을 볼 수 있음. 로봇이 지나갈 공간이 부족함. 따라서 margin을 줄이는 작업이 필요함.
+
+---
+해결 방법
+
+/opt/ros/humble/share/turtlebot3_navigation2/param/humble/burger.yaml을 복사하여 custom_burger.yaml을 생성.
+
+custom_burger.yaml를
+```
+inflation_radius: 0.2
+```
+로 수정.
+
+nav2 실행시
+```zsh
+ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger.yaml
+```
+로 실행
+
+---
+문제 발생
+
+![Error : Can not load error_map_3.png](/assets/images/error_map_3.png)
+Margin은 확실히 줄었지만 아직도 빈 공간 탐사를 진행하지 않고 탐사를 끝내버림.
 
 
 ### 해결
