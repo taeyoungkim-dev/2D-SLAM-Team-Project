@@ -23,6 +23,36 @@
 * 하지만 Nav2(경로 계획기)가 위 1, 2번의 이유로 "해당 프론티어로 향하는 문을 통과할 수 없다(Failed to create path)"고 판단함.
 * `explore_lite` 노드는 해당 프론티어를 '접근 불가(Unreachable) 구역'으로 간주하여 탐색 목록에서 영구 삭제(블랙리스트 처리)해버림.
 * 남은 프론티어가 없다고 판단한 `explore_lite`는 최종적으로 탐사를 중단함.
+---
+해결방법
+
+로봇의 사이즈를 작게 설정하여 nav2가 갈 수 있는 길이라고 선택하게 만들기
+
+custom_waffle_pi.yaml
+```
+# footprint: "[[-0.149, -0.149], [0.149, -0.149], [0.149, 0.149], [-0.149, 0.149]]"
+robot_radius: 0.02
+inflation_radius: 0.05
+```
+---
+문제 발생
+
+좁은 방 입구를 못넘고 있음
+---
+원인 분석
+
+![Error : Can not load map.png](/assets/images/error_map.png)
+![Error : Can not load error_costmap.png](/assets/images/error_costmap.png)
+위 이미지를 보면 충분히 frontier를 만들 수 있는 선분이 있음을 확인할 수 있다.
+
+원인 추정
+1. Frontier이 어떠한 이유로 만들어지지 않아서 탐사가 되지 않고 있다.
+or
+2. Frontier는 정확히 만들어졌지만 문 틈 사이가 좁아서 탐사할 수 없는 공간이라고 파악되어 탐사를 중단했다.
+
+둘 중 어느것이 원인인지 밝혀야 한다.
+
+
 
 ### 해결
 (추후 적용될 해결 방안 작성 예정)
