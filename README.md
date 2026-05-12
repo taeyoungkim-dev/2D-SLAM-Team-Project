@@ -29,17 +29,7 @@ sudo apt --fix-broken install
 # Gazebo 11 및 ROS 2 브릿지 설치
 sudo apt install -y gazebo ros-humble-gazebo-ros-pkgs
 
-#자율탐색 ros2 패키지
-mkdir -p src
-cd src
-git clone https://github.com/robo-friends/m-explore-ros2.git
-
-#자신의 Directory 위치로
-cd ~/workspace/2D-SLAM-Team-Project
-colcon build
-```
-
-
+#TODO : colcon 방법 추가해야함
 
 ### 1.2 TurtleBot3 및 SLAM 필수 패키지 설치
 로봇 구동과 매핑에 필요한 공식 패키지들을 설치합니다.
@@ -63,32 +53,13 @@ git clone https://github.com/osrf/gazebo_models.git models
 ```
 
 ### 1.4 환경 변수 설정 (`~/.zshrc`)
-TurtleBot3 Waffle Pi 모델을 기본으로 사용하도록 `zsh` 환경에 등록합니다.
+TurtleBot3 Burger 모델을 기본으로 사용하도록 `zsh` 환경에 등록합니다.
 
 자신의 환경이 bash인지 zsh인지 체크해야함!
 ```zsh
 echo "export TURTLEBOT3_MODEL=burger" >> ~/.zshrc
 source ~/.zshrc
 ```
-
-### 1.5 custom_waffle_pi.yaml 생성
-1. 파라미터 파일 로컬 복사 (custom_waffle_pi.yaml 생성)
-
-```zsh
-cd ~/workspace/2D-SLAM-Team-Project
-cp cp /opt/ros/humble/share/turtlebot3_navigation2/param/humble/burger.yaml ./custom_burger.yaml
-```
-
-2. 문법 수정
-
-```zsh
-sed -i 's/nav2_navfn_planner::NavfnPlanner/nav2_navfn_planner\/NavfnPlanner/g' custom_waffle_pi.yaml
-sed -i 's/nav2_behaviors::/nav2_behaviors\//g' custom_waffle_pi.yaml
-```
-
-3. threshold 수정
-
-inflation_radius: 0.2
 
 ## 🚀 2. How to Run (실행 방법)
 
@@ -97,6 +68,7 @@ inflation_radius: 0.2
 
 ### [Terminal 1] Gazebo 시뮬레이션 실행 (환경 구성)
 원하는 맵을 선택하여 가상 환경과 로봇을 소환합니다. (기본값: House 맵)
+맵을 불러오고 반드시 로봇을 원하는 위치에 위치시키고 Terminal 2를 실행해야 합니다.
 
 ```zsh
 export TURTLEBOT3_MODEL=burger
@@ -129,21 +101,16 @@ ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
 > **Tip:** RViz2 창이 열리면 왼쪽 하단 `Add` 버튼을 눌러 `By topic` 탭에서 `/camera/image_raw`를 추가하면 로봇의 1인칭 카메라 뷰를 실시간으로 확인할 수 있습니다.
 
 ### [Terminal 4] Navigation2 실행 (자율주행 엔진)
-자율 탐색 시 장애물을 회피하며 주행하기 위해 Nav2 엔진을 켭니다. ROS 2 버전 호환성을 위해 수정된 커스텀 파라미터 파일(`custom_waffle_pi.yaml`)을 사용합니다.
+자율 탐색 시 장애물을 회피하며 주행하기 위해 Nav2 엔진을 켭니다. ROS 2 버전 호환성을 위해 수정된 커스텀 파라미터 파일(`custom_burger.yaml`)을 사용합니다.
 
 ```zsh
 export TURTLEBOT3_MODEL=burger
 ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger.yaml
 ```
 
-### [Terminal 5] 자율 탐색 (Explore Lite) 또는 수동 조종
-**옵션 A: 자율 탐색 시작 (권장)**
-로봇이 미지의 영역(Frontier)을 스스로 찾아다니며 맵을 100% 완성합니다.
-```zsh
-source install/setup.zsh
-#min_frontier_size는 맵 마다 조정
-ros2 run explore_lite explore --ros-args -p use_sim_time:=true -p robot_base_frame:=base_link -p min_frontier_size:=0.2 -p costmap_topic:=/global_costmap/costmap
-```
+### [Terminal 5] 자율 탐색 (taeyoung explorer) 또는 수동 조종
+
+개발 중
 
 **옵션 B: 수동 조종 (Teleop)**
 키보드 방향키(W, A, S, D, X)를 이용해 로봇을 직접 조종하고 싶을 때 사용합니다. (이 경우 Terminal 4와 Terminal 5의 옵션 A는 실행하지 않아도 됩니다.)

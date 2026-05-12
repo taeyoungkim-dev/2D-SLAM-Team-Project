@@ -108,6 +108,52 @@ ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./
 ![Error : Can not load error_map_3.png](/assets/images/error_map_3.png)
 Margin은 확실히 줄었지만 아직도 빈 공간 탐사를 진행하지 않고 탐사를 끝내버림.
 
+---
+원인 분석
+
+Cartographer 패키지는 /map topic을 publish한다.
+/map topic은 int8(1byte) array data로 이루어져있다.
+0:확실한 빈 공간, 100: 확실한 벽, 1~99: index 위치가 장애물일 확률, -1: 아직 가보지 않은 곳
+따라서 방 입구가 -1로 되어있는지 부터 확인해야 한다.
+
+![Error : Can not load only_map_topic.png](/assets/images/only_map_topic.png)
+
+위의 사진을 보면 왼쪽 방 입구가 확실히 방 바깥과 같은 색의 -1값으로 칠해져 있는 것을 확인할 수 있다. 따라서 /map까지는 문제가 없다.
+
+nav2 패키지는 /map을 다른 센서 데이터와 조합하여 /costmap을 생성한다.
+/costmap은 3가지의 구성요소를 가진다.
+1. Static layer : /map과 비슷하게 index위치의 상태의 array이다. 254:벽, 0:빈 공간, 255:아직 가보지 않은 곳
+2. Obstacle layer : /map과 /scan을 비교하여 동적 장애물 표시
+3. Inflation layer : 254인 벽 공간들에 margin을 붙인다.
+
+![Error : Can not load only_costmap_topic.png](/assets/images/only_costmap_topic.png)
+![Error : Can not load only_costmap_topic.png](/assets/images/only_costmap_topic_2.png)
+
+위 이미지들을 보면 static layer과 inflation layer가 모두 잘 publish되었고 방 입구도 아직 가보지 않은 곳으로 잘 표시해 둔 것을 알 수 있다.
+
+explore_lite는 /costmap topic을 토대로 frontier를 생성한다.
+/scripts/frontier_freezer.py로 /explore/frontiers를 기록해서
+rviz2에 띄우려고 하였지만 /explore/frontiers 자체가 publish되지 않아
+문제가 생기는 것을 확인하였다. 아래 이미지는 /explore/frontiers를 시각화 했지만 아무것도 보이지 않는 이미지이다.
+
+![Error : Can not load fronzen_frontier_experiment.png](/assets/images/fronzen_frontier_experiment.png)
+
+frontier가 정말 생성되지 않는 것인지
+frontier가 생성되었어도 nav2가 갈 수 없는 곳이라고 거부하는 것인지
+판단해야한다.
+
+![Error : Can not load nav2_experiment.png](/assets/images/nav2_experiment.png)
+
+위 사진을 보면 nav2를 실행하고 오직 앞으로만 가는 명령을 nav2에 줬을 때 벽을 좌수법으로 돌아다니며 맵을 잘 돌아다니는 것을 확인할 수 있다.
+따라서 방 입구가 좁아서 nav2가 frontier를 거부했다는 가설은 틀렸다.
+
+또한 하나의 방 안에서 explore_lite를 실행시 방 입구로 나가지는 못하지만 방 안을 탐사하는 것을 근거로 frontier가 아예 존재하지 않거나 frontier가 다른 이름으로 publish되는 가설도 틀렸다.
+
+따라서 explore_lite의 알고리즘으로 문 입구의 탐사하지 못한 공간만 frontier로 지정하지 못하는 문제가 있다는 것으로 결론 지을 수 있다.
+
+explore_lite 패키지를 열어서 error를 고치는 것은 상당히 시간이 오래 걸린다.
+
 
 ### 해결
-(추후 적용될 해결 방안 작성 예정)
+
+explore_lite를 대체할 프로그램을 개발

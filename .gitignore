@@ -1,8 +1,31 @@
-__pycache__/
-*.py[cod]
-*$py.class
+# ==========================================
+# ROS 2 Workspace Build Artifacts
+# ==========================================
 build/
 install/
 log/
-src/m-explore-ros2/
-custom_waffle_pi.yaml
+COLCON_IGNORE
+
+# ==========================================
+# Python Artifacts
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# ==========================================
+# Editor / OS Artifacts
+# ==========================================
+# Vim
+*.swp
+*.swo
+*~
+
+
+.vscode/
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
