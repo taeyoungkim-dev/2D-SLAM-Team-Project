@@ -3,7 +3,7 @@
 
 # TurtleBot3 2D SLAM in Gazebo (ROS 2 Humble)
 
-본 프로젝트는 ROS 2 Humble 환경에서 TurtleBot3 (Waffle Pi)를 활용하여 Gazebo 가상 환경에서 2D SLAM(Cartographer)을 수행하고 지도를 생성하는 시뮬레이션 환경 구축 가이드입니다.
+본 프로젝트는 ROS 2 Humble 환경에서 TurtleBot3 (burger)를 활용하여 Gazebo 가상 환경에서 2D SLAM(Cartographer)을 수행하고 지도를 생성하는 시뮬레이션 환경 구축 가이드입니다.
 
 ## 🛠 Prerequisites (사전 요구 사항)
 * **OS:** Ubuntu 22.04 LTS
@@ -61,6 +61,12 @@ echo "export TURTLEBOT3_MODEL=burger" >> ~/.zshrc
 source ~/.zshrc
 ```
 
+### 1.5 taeyoung_explorer 패키지 설치
+```zsh
+cd ~/2D-SLAM-Team-Project
+colcon build --packages-select taeyoung_explorer
+```
+
 ## 🚀 2. How to Run (실행 방법)
 
 성공적인 자율 탐색 및 2D SLAM 시뮬레이션을 위해 총 5개의 터미널 창을 순서대로 실행합니다.
@@ -110,7 +116,11 @@ ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./
 
 ### [Terminal 5] 자율 탐색 (taeyoung explorer) 또는 수동 조종
 
-개발 중
+taeyoung_explorer 실행
+```zsh
+source install/setup.zsh
+ros2 run taeyoung_explorer explorer_node
+```
 
 **옵션 B: 수동 조종 (Teleop)**
 키보드 방향키(W, A, S, D, X)를 이용해 로봇을 직접 조종하고 싶을 때 사용합니다. (이 경우 Terminal 4와 Terminal 5의 옵션 A는 실행하지 않아도 됩니다.)

@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'explorer_node = taeyoung_explorer.explorer_node:main',
         ],
     },
 )
