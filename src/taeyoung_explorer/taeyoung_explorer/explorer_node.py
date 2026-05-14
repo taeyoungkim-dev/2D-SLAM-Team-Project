@@ -3,23 +3,38 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
 import numpy as np
+from time import monotonic
 from scipy.signal import convolve2d
 from scipy.ndimage import label
 from tf2_ros import Buffer, TransformListener
 from tf2_ros import TransformException
 from rclpy.action import ActionClient
 from nav2_msgs.action import NavigateToPose
-from visualization_msgs.msg import Marker
+from visualization_msgs.msg import Marker, MarkerArray
+from geometry_msgs.msg import Point
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
-DEBUG_MODE = False
+DEBUG_MODE = True
+LETHAL_THRESHOLD = 80
+FRONTIER_PIXEL_WALL_FILTER_SIZE = 5
 
 class TaeyoungExplorer(Node):
     def __init__(self):
         super().__init__('taeyoung_explorer_node')
         self.get_logger().info('Explorer Activated. Waiting for costmap...')
 
+        # Cartographer의 /map을 받기 위한 특별한 수신 안테나(QoS) 세팅
+        qos_profile = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL  # 핵심: 지나간 도면도 다시 받아온다!
+        )
+
         #target_pos 시각화 publisher
         self.marker_pub = self.create_publisher(Marker, 'target_marker', 10)
+        self.valid_clusters_pub = self.create_publisher(MarkerArray, 'valid_clusters_marker', 10)
+        self.pre_valid_clusters_pub = self.create_publisher(MarkerArray, 'pre_valid_clusters_marker', 10)
+        self.debug_wall_pub = self.create_publisher(OccupancyGrid, '/debug_wall_map', 1)
 
         #TF buffer, listener
         #로봇의 현재 위치를 callback함수를 쓰지 않고 얻어올 수 있음
@@ -32,13 +47,18 @@ class TaeyoungExplorer(Node):
         # 로봇이 지금 이동 중인지 확인하는 자물쇠(Lock)
         #navigating 중에는 명령하면 안된다
         self.is_navigating = False
+        self._active_goal_handle = None
+        self.exploration_finished = False
+        self.min_target_distance_pixels = 6.0
+        self.has_wall_nearby = None
+        self.post_arrival_pause_until = 0.0
         
         # 1. Costmap 구독기 생성
         self.costmap_sub = self.create_subscription(
             OccupancyGrid,
-            '/global_costmap/costmap',
+            '/map',
             self.costmap_callback,
-            10)
+            qos_profile)
         
         self.map_data = None
         self.map_info = None
@@ -50,14 +70,14 @@ class TaeyoungExplorer(Node):
         # 방금 쏜 미사일의 픽셀 좌표를 기억할 변수
         self.current_target_pixel = None
     def costmap_callback(self, msg):
+        if self.exploration_finished:
+            return
+
         self.map_info = msg.info
         # 1. 내 위치부터 파악 (TF 조회)
         self.robot_pos_pixel = self.get_robot_pos_pixel()
         # 위치를 못 찾았으면 아직 움직일 때가 아님. 다음 지도를 기다림.
         if self.robot_pos_pixel is None:
-            return
-        # 자물쇠 확인: 이미 이동 중이라면 명령을 하달하지 않고 무시함
-        if self.is_navigating:
             return
         # 2. 1차원 튜플 데이터를 2D Numpy 배열로 변환
         width = msg.info.width
@@ -65,12 +85,24 @@ class TaeyoungExplorer(Node):
         
         # ROS2의 OccupancyGrid는 1차원 배열이므로, 이를 (y, x) 형태의 2차원으로 재조립합니다.
         self.map_data = np.array(msg.data, dtype=np.int8).reshape((height, width))
+
+        # 3-1 벽 감시용 맵은 탐색/주행 여부와 무관하게 항상 최신화한다.
+        self.has_wall_nearby = self.update_wall_nearby_map(self.map_data)
+
+        # 목표 도착 직후에는 잠깐 멈춘 뒤 다음 계산을 시작한다.
+        if monotonic() < self.post_arrival_pause_until:
+            return
+        
+        # 자물쇠 확인: 이미 이동 중이라면 벽 감시 로직만 수행
+        if self.is_navigating:
+            self.check_wall_during_navigation()
+            return
         
         # 3. 데이터가 잘 들어오는지 디버깅 출력
         if DEBUG_MODE :
-            free_space = np.count_nonzero(self.map_data == 0)
+            free_space = np.count_nonzero((self.map_data >= 0) & (self.map_data < LETHAL_THRESHOLD))
             unknown_space = np.count_nonzero(self.map_data == -1)
-            lethal_space = np.count_nonzero(self.map_data == 100) # Nav2 기준 치명적 장애물
+            lethal_space = np.count_nonzero((self.map_data >= LETHAL_THRESHOLD) & (self.map_data <= 100)) # Nav2 기준 치명적 장애물
             
             self.get_logger().info(
                 f'맵 수신 완료! [빈공간: {free_space}칸, 미지영역: {unknown_space}칸, 벽: {lethal_space}칸]'
@@ -86,6 +118,19 @@ class TaeyoungExplorer(Node):
                 
                 # 3. 거르기
                 valid_clusters = self.noise_filtering(frontier_clusters)
+
+                # (시각화) 노이즈(size) 필터 통과 클러스터
+                self.publish_pre_filtered_clusters(valid_clusters)
+
+                # 3-1. 벽/블랙리스트 필터
+                valid_clusters = self.wall_blacklist_filtering(valid_clusters)
+
+                if len(valid_clusters) == 0:
+                    self.finish_exploration('블랙리스트 필터 후 남은 valid cluster가 없습니다.')
+                    return
+
+                # valid_clusters 시각화
+                self.publish_valid_clusters(valid_clusters)
                 
                 # 4. 조준
                 target_pixel = self.target_selecting(valid_clusters)
@@ -93,13 +138,127 @@ class TaeyoungExplorer(Node):
                 # 5. 발사
                 if target_pixel is not None:
                     self.ordering(target_pixel, self.map_info)
-        #TODO : End explore
+    
+    def check_wall_during_navigation(self):
+        """
+        로봇이 이동 중일 때 현재 목표 좌표 주변을 모니터링합니다.
+        만약 목표 좌표가 벽 근처라고 판명되면, 그 좌표를 블랙리스트에 등록하고
+        is_navigating을 False로 내려서 다음 costmap에서 새로운 목표를 탐색하도록 합니다.
+        """
+        # 예외 처리: current_target_pixel이 설정되지 않았으면 아무것도 하지 않음
+        if self.current_target_pixel is None or self.map_data is None:
+            return
+
+        y, x = self.current_target_pixel[0], self.current_target_pixel[1]
+
+        # 현재 목표 픽셀이 벽 근처로 판정되면 방어한다.
+        if self.has_wall_nearby is not None and self.has_wall_nearby[y, x] > 0:
+            self.blacklist_pixels.append(self.current_target_pixel)
+
+            # 현재 활성 goal을 취소하고 탐색 재개는 cancel 콜백에서 처리
+            self.cancel_active_goal()
+            
+            if DEBUG_MODE:
+                self.get_logger().warn(
+                    f'이동 중 벽 감지! 목표 Y:{self.current_target_pixel[0]}, X:{self.current_target_pixel[1]} '
+                    f'블랙리스트 등록 및 탐색 재개'
+                )
+
+    def update_wall_nearby_map(self, map_data):
+        """벽 근처 여부를 나타내는 맵을 갱신한다."""
+        wall_map = (map_data >= LETHAL_THRESHOLD).astype(np.int8)
+        wall_kernel = np.ones((FRONTIER_PIXEL_WALL_FILTER_SIZE, FRONTIER_PIXEL_WALL_FILTER_SIZE), dtype=np.int8)
+        has_wall_nearby = convolve2d(wall_map, wall_kernel, mode='same')
+
+        debug_msg = OccupancyGrid()
+        debug_msg.header.stamp = self.get_clock().now().to_msg()
+        debug_msg.header.frame_id = 'map'
+        debug_msg.info = self.map_info
+
+        # has_wall_nearby가 1 이상인 곳(벽 반경 안)은 100(검정), 아니면 0(하양)으로 색칠
+        debug_data = np.where(has_wall_nearby > 0, 100, 0).astype(np.int8)
+        debug_msg.data = debug_data.flatten().tolist()
+
+        self.debug_wall_pub.publish(debug_msg)
+
+        return has_wall_nearby
+
+    def cluster_medoid(self, cluster):
+        centroid_y = int(np.mean(cluster[:, 0]))
+        centroid_x = int(np.mean(cluster[:, 1]))
+        theoretical_centroid = np.array([centroid_y, centroid_x])
+        distances_to_centroid = np.linalg.norm(cluster - theoretical_centroid, axis=1)
+        best_pixel_idx = np.argmin(distances_to_centroid)
+        return cluster[best_pixel_idx]
+
+    def is_near_blacklist(self, pixel, radius=10.0):
+        for bad_pixel in self.blacklist_pixels:
+            if np.linalg.norm(pixel - bad_pixel) < radius:
+                return True
+        return False
+
+    def cluster_has_wall(self, cluster, radius=5):
+        centroid = self.cluster_medoid(cluster)
+        y, x = centroid[0], centroid[1]
+
+        height, width = self.map_data.shape
+        y_min = max(0, y - radius)
+        y_max = min(height, y + radius + 1)
+        x_min = max(0, x - radius)
+        x_max = min(width, x + radius + 1)
+
+        roi = self.map_data[y_min:y_max, x_min:x_max]
+        # 치명적 장애물 값 범위: LETHAL_THRESHOLD 이상 100 이하
+        return np.any((roi >= LETHAL_THRESHOLD) & (roi <= 100)), centroid
+
+    def wall_blacklist_filtering(self, frontier_clusters):
+        filtered_clusters = []
+        for cluster in frontier_clusters:
+            has_wall, centroid = self.cluster_has_wall(cluster)
+            if has_wall:
+                if not self.is_near_blacklist(centroid):
+                    self.blacklist_pixels.append(centroid)
+                continue
+
+            if self.is_near_blacklist(centroid):
+                continue
+
+            filtered_clusters.append(cluster)
+
+        return filtered_clusters
+
+    def cancel_active_goal(self):
+        if self._active_goal_handle is None:
+            self.is_navigating = False
+            return
+
+        cancel_future = self._active_goal_handle.cancel_goal_async()
+        cancel_future.add_done_callback(self.cancel_goal_callback)
+
+    def cancel_goal_callback(self, future):
+        if DEBUG_MODE:
+            self.get_logger().warn('Nav2 현재 goal 취소 완료.')
+
+        self._active_goal_handle = None
+        self.current_target_pixel = None
+        self.is_navigating = False
+
+    def finish_exploration(self, reason):
+        self.get_logger().info(f'탐색 종료: {reason}')
+        self.cancel_active_goal()
+        self.exploration_finished = True
+
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
     def edge_scanning(self,map_data):
         #map_data는 2차원 int8 matrix 형태
         # 1. 맵 분리: '빈공간' 지도와 '미지영역' 지도를 따로 만듭니다.
         # (조건에 맞으면 True(1), 아니면 False(0)인 흑백 지도가 됩니다)
-        free_map = (map_data == 0).astype(np.int8)
+        # 빈공간: 0 <= value < LETHAL_THRESHOLD (non-lethal / 탐색 가능한 영역)
+        free_map = ((map_data >= 0) & (map_data < LETHAL_THRESHOLD)).astype(np.int8)
         unknown_map = (map_data == -1).astype(np.int8)
 
         # 2. 커널(Kernel) 생성: 상하좌우를 살피기 위한 십자가 돋보기
@@ -117,10 +276,18 @@ class TaeyoungExplorer(Node):
         # 만약 주변(상하좌우)에 미지영역이 1개라도 있다면 결괏값이 1 이상이 됩니다.
         surrounded_by_unknown = convolve2d(unknown_map, kernel, mode='same')
         
+        # 3-1. 벽 감시 로직 추가
+        # 공간 내에 벽이 1개라도 있으면 frontier에서 제외
+        has_wall_nearby = self.has_wall_nearby
+        if has_wall_nearby is None or has_wall_nearby.shape != map_data.shape:
+            has_wall_nearby = self.update_wall_nearby_map(map_data)
+            self.has_wall_nearby = has_wall_nearby
+        
         # 4. 프론티어 조건 결합
         # 조건 1: 내 발밑은 빈 공간이어야 함 (free_map == 1)
         # 조건 2: 내 주변 상하좌우 중 최소 한 곳은 미지영역이어야 함 (surrounded_by_unknown > 0)
-        frontier_mask = (free_map == 1) & (surrounded_by_unknown > 0)
+        # 조건 3: 8방향 중 벽이 없어야 함 (has_wall_nearby == 0)
+        frontier_mask = (free_map == 1) & (surrounded_by_unknown > 0) & (has_wall_nearby == 0)
 
         # 5. 마스크에서 좌표 추출
         # True로 표시된 픽셀들의 좌표를 뽑아냅니다.
@@ -177,7 +344,7 @@ class TaeyoungExplorer(Node):
         # 나중에 __init__에서 self.min_frontier_size = 5 정도로 빼두시면 
         # 파라미터로 튜닝하기 좋습니다. 지금은 일단 5로 고정해보겠습니다.
         #edit
-        min_size = 30
+        min_size = 5
         
         # 파이썬의 꽃, 리스트 컴프리헨션(List Comprehension)을 사용한 1줄 컷!
         # "클러스터의 픽셀 수가 min_size 이상인 놈들만 살려서 새 리스트를 만든다"
@@ -191,6 +358,90 @@ class TaeyoungExplorer(Node):
             )
 
         return valid_clusters
+
+    def publish_valid_clusters(self, valid_clusters):
+        """
+        RViz2에서 valid_clusters를 한눈에 볼 수 있도록 클러스터 픽셀 범위를 퍼블리시합니다.
+        """
+        marker_array = MarkerArray()
+
+        clear_marker = Marker()
+        clear_marker.action = Marker.DELETEALL
+        marker_array.markers.append(clear_marker)
+
+        for idx, cluster in enumerate(valid_clusters):
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = 'valid_clusters'
+            marker.id = idx
+            marker.type = Marker.POINTS
+            marker.action = Marker.ADD
+
+            marker.scale.x = 0.05
+            marker.scale.y = 0.05
+            marker.scale.z = 0.0
+
+            marker.color.r = 0.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+            marker.color.a = 1.0
+
+            points = []
+            for pixel in cluster:
+                point = Point()
+                point.x = float((pixel[1] * self.map_info.resolution) + self.map_info.origin.position.x)
+                point.y = float((pixel[0] * self.map_info.resolution) + self.map_info.origin.position.y)
+                point.z = 0.03
+                points.append(point)
+
+            marker.points = points
+
+            marker_array.markers.append(marker)
+
+        self.valid_clusters_pub.publish(marker_array)
+    
+    def publish_pre_filtered_clusters(self, clusters):
+        """
+        noise_filtering() 후, wall/blacklist 필터 적용 전의 클러스터들을 RViz에 표시합니다.
+        색상은 파란색으로 구분합니다.
+        """
+        marker_array = MarkerArray()
+
+        clear_marker = Marker()
+        clear_marker.action = Marker.DELETEALL
+        marker_array.markers.append(clear_marker)
+
+        for idx, cluster in enumerate(clusters):
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = 'pre_valid_clusters'
+            marker.id = idx
+            marker.type = Marker.POINTS
+            marker.action = Marker.ADD
+
+            marker.scale.x = 0.05
+            marker.scale.y = 0.05
+            marker.scale.z = 0.0
+
+            marker.color.r = 0.0
+            marker.color.g = 0.0
+            marker.color.b = 1.0
+            marker.color.a = 0.9
+
+            points = []
+            for pixel in cluster:
+                point = Point()
+                point.x = float((pixel[1] * self.map_info.resolution) + self.map_info.origin.position.x)
+                point.y = float((pixel[0] * self.map_info.resolution) + self.map_info.origin.position.y)
+                point.z = 0.02
+                points.append(point)
+
+            marker.points = points
+            marker_array.markers.append(marker)
+
+        self.pre_valid_clusters_pub.publish(marker_array)
     
     def target_selecting(self,valid_clusters):
         """
@@ -205,79 +456,20 @@ class TaeyoungExplorer(Node):
 
         min_dist = float('inf') # 최소 거리를 저장할 변수 (초기값은 무한대)
         target_pixel = None # 최종 타겟 픽셀
-        #edit
-        blacklist_radius = 10.0
         for cluster in valid_clusters:
-            #Medoid 맵핑
-            # 1. 덩어리의 무게중심(Centroid) 계산
-            # np.mean을 쓰면 y좌표들의 평균, x좌표들의 평균을 0.001초만에 구해줍니다.
-            centroid_y = int(np.mean(cluster[:, 0]))
-            centroid_x = int(np.mean(cluster[:, 1]))
-            theoretical_centroid = np.array([centroid_y, centroid_x])
-            distances_to_centroid = np.linalg.norm(cluster - theoretical_centroid, axis=1)
-            best_pixel_idx = np.argmin(distances_to_centroid)
-            centroid = cluster[best_pixel_idx]
-
-            # ==========================================
-            # [새로운 로직] 벽 관통 레이더망 (Numpy Slicing)
-            # 타겟 주변을 11x11(반경 5픽셀) 크기로 썰어서 벽(100)을 스캔합니다.
-            # 해상도 0.05m 기준, 사방으로 25cm를 검사하는 강력한 안전망입니다.
-            # ==========================================
-            R = 10
-            y, x = centroid[0], centroid[1]
-            
-            # self.map_data의 크기를 가져와서 인덱스 초과(IndexError) 방지
-            height, width = self.map_data.shape
-            
-            y_min = max(0, y - R)
-            y_max = min(height, y + R + 1)
-            x_min = max(0, x - R)
-            x_max = min(width, x + R + 1)
-            
-            # 맵에서 타겟 주변 네모난 박스(ROI)만 싹둑 잘라옵니다.
-            roi = self.map_data[y_min:y_max, x_min:x_max]
-            
-            # 박스 안에 치명적 장애물(100)이 단 하나라도 발견된다면?!
-            if np.any(roi == 100):
-                # "여긴 사지(死地)다! 혹은 가짜 방이다!" 하고 쿨하게 버립니다.
-                self.blacklist_pixels.append(centroid)
-                continue
-            # ==========================================
-
-            # [추가된 로직] 이 중심점이 블랙리스트 근처인지 검사
-            is_blacklisted = False
-            for bad_pixel in self.blacklist_pixels:
-                # 블랙리스트 좌표와의 거리 계산
-                dist_to_bad = np.linalg.norm(centroid - bad_pixel)
-                if dist_to_bad < blacklist_radius:
-                    is_blacklisted = True
-                    break # 하나라도 걸리면 이 덩어리는 즉시 포기
-            
-            if is_blacklisted:
-                continue # 이 덩어리는 스킵하고 다음 덩어리 검사!
+            centroid = self.cluster_medoid(cluster)
 
             # [추가해야 할 핵심 방어 로직]
             # 로봇 위치와 타겟 후보의 픽셀 거리를 계산합니다.
             dist_to_robot = np.linalg.norm(centroid - self.robot_pos_pixel)
             
-            # 해상도가 0.05m라면 6픽셀은 30cm입니다.
-            # "내 발밑 30cm 이내에 있는 프론티어는, 어차피 지금 지워지고 있는 중인 '유령'이니까 무시해!"
-            #edit
-            if dist_to_robot < 10.0: 
+            # 로봇 발밑 바로 근처 frontier는 제외
+            if dist_to_robot < self.min_target_distance_pixels:
                 continue
 
             # 이 방어막을 통과한 놈들 중에서만 가장 가까운 타겟을 찾습니다.
             if dist_to_robot < min_dist:
                 min_dist = dist_to_robot
-                target_pixel = centroid
-
-            # 2. 로봇 위치와의 거리 계산 (유클리디안 거리)
-            # np.linalg.norm: 벡터의 길이(직선 거리)를 구해주는 강력한 함수입니다.
-            dist = np.linalg.norm(centroid - self.robot_pos_pixel)
-
-            # 3. 가장 가까운 타겟인지 확인 후 갱신
-            if dist < min_dist:
-                min_dist = dist
                 target_pixel = centroid
 
         if DEBUG_MODE and target_pixel is not None:
@@ -289,6 +481,9 @@ class TaeyoungExplorer(Node):
         """
         목표 픽셀을 현실의 미터(m) 좌표로 변환하고 Nav2로 쏘아 올립니다.
         """
+        if self.is_navigating:
+            return
+
         self.current_target_pixel = target_pixel
 
         res = map_info.resolution
@@ -421,6 +616,7 @@ class TaeyoungExplorer(Node):
             return
 
         # 접수되었다면 주행이 끝날 때까지 기다렸다가 get_result_callback을 불러라
+        self._active_goal_handle = goal_handle
         self._get_result_future = goal_handle.get_result_async()
         self._get_result_future.add_done_callback(self.get_result_callback)
 
@@ -433,13 +629,17 @@ class TaeyoungExplorer(Node):
         if status == 4:
             if DEBUG_MODE:
                 self.get_logger().info('프론티어 도착 완료! 새로운 지형을 확보했습니다.')
+            self.post_arrival_pause_until = monotonic() + 2.0
         else:
             self.get_logger().warn(f'주행 실패(코드:{status}). (블랙리스트 추가)')
             # 가다가 막혀서 실패해도 블랙리스트에 추가!
             if self.current_target_pixel is not None:
                 self.blacklist_pixels.append(self.current_target_pixel)
+            self.post_arrival_pause_until = 0.0
 
         # 성공했든 실패했든 상황이 끝났으므로 자물쇠를 푼다. (다음 costmap_callback에서 다시 탐색 시작)
+        self._active_goal_handle = None
+        self.current_target_pixel = None
         self.is_navigating = False
 def main(args=None):
     rclpy.init(args=args)
