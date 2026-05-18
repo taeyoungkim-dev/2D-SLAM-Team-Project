@@ -1,12 +1,10 @@
 ### 2026.05.18 시작
 
 2d-slam taeyoung_explorer fail 영상 촬영
-```html
-    <video width="100%" height="auto" controls>
-      <source src="./assets/videos/taeyoung_explorer_fail.webm" type="video/webm">
-      Your browser does not support the video tag.
-    </video>
-```
+<video width="100%" height="auto" controls>
+    <source src="./assets/videos/taeyoung_explorer_fail.webm" type="video/webm">
+    Your browser does not support the video tag.
+</video>
 
 실험 환경 세팅을 위해 turtlebot3 burger에 real sense depth camera를 설치하는 작업
 
