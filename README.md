@@ -19,17 +19,9 @@
 신형 Gazebo(Ignition) 패키지와 구형 Gazebo 11 간의 충돌을 방지하기 위해 기존 관련 패키지를 정리하고 설치합니다.
 
 ```zsh
-# 신형 Gazebo 패키지 및 찌꺼기 제거
-# 신형 Gazebo가 깔려있지 않다면 스킵해도 됨.
-sudo apt remove -y gz-tools2 "^ignition-*" "^libignition-*" "^libgz-*"
-sudo apt autoremove -y
-sudo apt update --fix-missing
-sudo apt --fix-broken install
-
 # Gazebo 11 및 ROS 2 브릿지 설치
 sudo apt install -y gazebo ros-humble-gazebo-ros-pkgs
-
-#TODO : colcon 방법 추가해야함
+```
 
 ### 1.2 TurtleBot3 및 SLAM 필수 패키지 설치
 로봇 구동과 매핑에 필요한 공식 패키지들을 설치합니다.
@@ -64,7 +56,7 @@ source ~/.zshrc
 ### 1.5 taeyoung_explorer 패키지 설치
 ```zsh
 cd ~/2D-SLAM-Team-Project
-colcon build --packages-select taeyoung_explorer
+colcon build --symlink-install
 ```
 
 ## 🚀 2. How to Run (실행 방법)
@@ -80,13 +72,15 @@ colcon build --packages-select taeyoung_explorer
 export TURTLEBOT3_MODEL=burger
 
 # 1. House Map (SLAM 테스트 권장)
-ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py
+ros2 launch custom_burger my_house.launch.py
+#ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py
+
 
 # 2. World Map (기본 장애물 맵)
-# ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
+# ros2 launch custom_burger my_turtlebot3_world.launch.py
 
 # 3. Empty World (장애물 없는 빈 맵)
-# ros2 launch turtlebot3_gazebo empty_world.launch.py
+# ros2 launch custom_burger empty_world.launch.py
 ```
 
 ### [Terminal 2] 커스텀 오브젝트 및 가벽 소환
