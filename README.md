@@ -96,7 +96,10 @@ ros2 launch ./assets/objects/spawn_rgb_balls.launch.py
 
 ```zsh
 export TURTLEBOT3_MODEL=burger
+#Cartographer
 ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
+#RTAB-MAP
+ros2 launch custom_burger rtabmap_3d.launch.py use_sim_time:=true
 ```
 > **Tip:** RViz2 창이 열리면 왼쪽 하단 `Add` 버튼을 눌러 `By topic` 탭에서 `/camera/image_raw`를 추가하면 로봇의 1인칭 카메라 뷰를 실시간으로 확인할 수 있습니다.
 
