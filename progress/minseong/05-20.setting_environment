@@ -1,0 +1,11 @@
+# 1. Containerized Development Environment 구축
+- Dockerfile 설계: Ubuntu 22.04, ROS 2 Humble, Gazebo 11 기반의 Base Image 구성 및 필수 Dependency (Cartographer, Navigation2 등) 설치.
+
+- Timeout Issue 해결: Image Build 단계에서 Gazebo Model Data를 Pre-download 하도록 구성하여 Simulation 구동 시 발생하는 Network Overhead 제거.
+
+# 2. ROS 2 Launch 및 GUI(RViz2) Troubleshooting
+- Time Sync 최적화: use_sim_time:=true Parameter 인가 시 TF(Transform) Tree 연산을 위해 Gazebo 구동을 통한 /clock Topic Publish가 선행되어야 함을 확인.
+
+- Display 권한 검증: Host OS의 xhost 권한 부여 및 Container 내부의 $DISPLAY Mapping Error 점검.
+
+### Readme 보고 튜토리얼 진행했습니다. 근데 수동 조종하다보니 turtlebot이 혼자 막 뒤집어지네요. 다시 일으켜 세우는 방법을 배워야겠습니다
