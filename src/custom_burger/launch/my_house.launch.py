@@ -34,13 +34,15 @@ def generate_launch_description():
     urdf_file = os.path.join(custom_burger_dir, 'urdf', 'turtlebot3_burger.urdf')
     with open(urdf_file, 'r') as infp:
         robot_desc = infp.read()
+    
+    robot_desc = robot_desc.replace('${namespace}', '')
 
     robot_state_publisher_cmd = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
-        parameters=[{'robot_description': robot_desc}]
+        parameters=[{'robot_description': robot_desc, 'use_sim_time': True}]
     )
 
     # SDF (카메라 센서가 추가된 물리 모델 스폰)

@@ -13,6 +13,9 @@ def generate_launch_description():
             os.path.join(rtabmap_launch_dir, 'rtabmap.launch.py')
         ),
         launch_arguments={
+            'use_sim_time': 'true',
+            'qos': '2',
+            'approx_sync_max_interval': '0.1', # [추가됨] RGB와 Depth 카메라 사이의 시간 오차를 0.1초까지 허용
             'args': '-d',  # -d: 실행할 때마다 이전 지도 데이터를 초기화하고 새로 그림
             'frame_id': 'base_footprint',  # 로봇의 기준 좌표계
             'subscribe_depth': 'true',     # 뎁스 카메라 사용 ON
@@ -24,6 +27,7 @@ def generate_launch_description():
             'approx_sync': 'true',         # 카메라와 바퀴 센서 간의 시간 오차 허용 (시뮬레이션 필수)
             'rviz': 'true',                # 3D 맵을 볼 수 있도록 미리 세팅된 RViz 켜기
             'rtabmap_viz': 'false',        # RTAB-Map 자체 UI는 무거우므로 끄기
+            'map_topic': '/map',
         }.items()
     )
 
