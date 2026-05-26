@@ -1,3 +1,6 @@
+# 결론
+다른 명령어를 입력했었다.
+
 # 상황발생
 `ros2 launch custom_burger rtabmap_3d.launch.py`를 실행했더니 다음과 같은 에러 로그가 떴다.
 
