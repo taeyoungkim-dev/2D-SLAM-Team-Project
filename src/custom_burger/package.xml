@@ -15,4 +15,7 @@
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+  <!-- Dependency 명시적으로 선언 -->
+  <exec_depend>turtlebot3_gazebo</exec_depend>
+  <exec_depend>turtlebot3_simulations</exec_depend>
 </package>
