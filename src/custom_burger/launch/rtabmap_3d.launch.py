@@ -15,19 +15,29 @@ def generate_launch_description():
         launch_arguments={
             'use_sim_time': 'true',
             'qos': '2',
-            'approx_sync_max_interval': '0.1', # [추가됨] RGB와 Depth 카메라 사이의 시간 오차를 0.1초까지 허용
-            'args': '-d',  # -d: 실행할 때마다 이전 지도 데이터를 초기화하고 새로 그림
-            'frame_id': 'base_footprint',  # 로봇의 기준 좌표계
-            'subscribe_depth': 'true',     # 뎁스 카메라 사용 ON
-            'subscribe_rgb': 'true',       # 컬러 카메라 사용 ON
-            'rgb_topic': '/camera/image_raw',        # Gazebo에서 나오는 컬러 토픽
-            'depth_topic': '/camera/depth/image_raw',# Gazebo에서 나오는 뎁스 토픽
+            # [필수 수정] args에 2D Grid 생성을 위한 파라미터 명시적 추가
+            'rtabmap_args': '--delete_db_on_start --Grid/Sensor 1 --Grid/RangeMax 3.5 --Grid/RayTracing true', 
+            'frame_id': 'base_footprint',
+            'subscribe_depth': 'true',
+            'subscribe_rgb': 'true',
+            
+            # [필수 추가] LiDAR 기반 2D Map 생성을 위해 scan topic subscribe 활성화
+            'subscribe_scan': 'true',
+            'scan_topic': '/scan',
+            
+            # [필수 추가] 불안정한 Visual Odometry 끄기 (Extrapolation Error 방지)
+            'visual_odometry': 'false', 
+            
+            'rgb_topic': '/camera/image_raw',
+            'depth_topic': '/camera/depth/image_raw',
             'camera_info_topic': '/camera/camera_info',
-            'odom_topic': '/odom',         # 바퀴(오도메트리) 위치 정보
-            'approx_sync': 'true',         # 카메라와 바퀴 센서 간의 시간 오차 허용 (시뮬레이션 필수)
-            'rviz': 'true',                # 3D 맵을 볼 수 있도록 미리 세팅된 RViz 켜기
-            'rtabmap_viz': 'false',        # RTAB-Map 자체 UI는 무거우므로 끄기
-            'map_topic': '/map',
+            'odom_topic': '/odom',
+            
+            'approx_sync': 'true',
+            'approx_sync_max_interval': '0.1',
+            
+            'rviz': 'true',
+            'rtabmap_viz': 'false',
         }.items()
     )
 
