@@ -29,3 +29,4 @@ __pycache__/
 # macOS / Windows
 .DS_Store
 Thumbs.db
+assets/videos/
