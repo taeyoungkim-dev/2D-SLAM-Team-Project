@@ -1,10 +1,10 @@
 # ==========================================
 # ROS 2 Workspace Build Artifacts
 # ==========================================
-build/
-install/
-log/
-COLCON_IGNORE
+robot_ws/build/
+robot_ws/install/
+robot_ws/log/
+robot_ws/COLCON_IGNORE
 
 # ==========================================
 # Python Artifacts
