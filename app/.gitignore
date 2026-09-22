@@ -1,0 +1,29 @@
+# Flutter/Dart 표준 gitignore
+
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter가 flutter create 시 생성하는 플랫폼 디렉터리는 로컬에서 생성하여 사용합니다.
+# (팀원마다 다른 SDK/도구 버전으로 생성된 산출물을 커밋하지 않기 위함)
+android/
+ios/
+linux/
+macos/
+windows/
+web/
+
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+
+*.g.dart
+*.freezed.dart
+
+coverage/

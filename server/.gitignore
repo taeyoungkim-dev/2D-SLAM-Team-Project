@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/*.db
+app/static/images/*
+!app/static/images/.gitkeep
+app/static/maps/*
+!app/static/maps/.gitkeep
+.env

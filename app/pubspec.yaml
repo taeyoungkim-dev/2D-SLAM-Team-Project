@@ -1,0 +1,29 @@
+name: robot_vacuum_app
+description: >-
+  시각 지능 기반 인터랙티브 로봇청소기 플랫폼 - Mobile App Agent (Flutter).
+  Local Backend Server(FastAPI)와 REST/WebSocket으로 통신하며,
+  로봇의 실시간 상태/궤적을 2D 캔버스에 표시하고 장애물 재청소 등을
+  사용자와 상호작용(HRI)으로 처리한다.
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.2
+  http: ^1.2.2
+  web_socket_channel: ^2.4.5
+  shared_preferences: ^2.3.2
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

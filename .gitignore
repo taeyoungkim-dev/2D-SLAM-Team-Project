@@ -1,10 +1,15 @@
 # ==========================================
-# ROS 2 Workspace Build Artifacts
+# ROS 2 Workspace Build Artifacts (colcon)
 # ==========================================
-robot_ws/build/
-robot_ws/install/
-robot_ws/log/
-robot_ws/COLCON_IGNORE
+# 저장소 최상단 또는 robot_ws/ 어디서 colcon build를 하든 생기는 산출물.
+build/
+install/
+log/
+COLCON_IGNORE
+
+# src/ 아래에 클론해서 쓰는 서드파티 ROS2 패키지 (자체 .git 포함, 벤더 의존성).
+# 필요하면 README 안내대로 다시 clone해서 사용하고, 커밋하지 않는다.
+src/m-explore-ros2/
 
 # ==========================================
 # Python Artifacts
@@ -15,6 +20,32 @@ __pycache__/
 *.egg-info/
 .eggs/
 
+# 가상환경 (server/ 등에서 python -m venv .venv 로 생성)
+.venv/
+venv/
+env/
+ENV/
+
+# FastAPI 서버 런타임 산출물 (server/.gitignore 에도 별도 명시되어 있음)
+*.db
+*.sqlite3
+
+# ==========================================
+# Flutter / Dart Artifacts (app/ 등에서 flutter create/run 시 생성)
+# ==========================================
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+*.iml
+
+# ==========================================
+# 환경변수 / 시크릿
+# ==========================================
+.env
+.env.local
+!.env.example
+
 # ==========================================
 # Editor / OS Artifacts
 # ==========================================
@@ -23,8 +54,8 @@ __pycache__/
 *.swo
 *~
 
-
 .vscode/
+.idea/
 
 # macOS / Windows
 .DS_Store
