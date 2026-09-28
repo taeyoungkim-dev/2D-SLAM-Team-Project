@@ -17,6 +17,7 @@ src/m-explore-ros2/
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
 *.egg-info/
 .eggs/
 
