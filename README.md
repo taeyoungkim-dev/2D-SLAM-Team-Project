@@ -74,6 +74,10 @@ export TURTLEBOT3_MODEL=burger
 # 1. House Map (SLAM 테스트 권장)
 ros2 launch custom_burger my_house.launch.py
 #ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py
+ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py \
+  x_pose:=-6.7 \
+  y_pose:=-3.16
+
 
 
 # 2. World Map (기본 장애물 맵)
@@ -131,3 +135,29 @@ ros2 run turtlebot3_teleop teleop_keyboard
 ```zsh
 ros2 run nav2_map_server map_saver_cli -f ~/map
 ```
+
+## 📡 4. m-explore-ros2 (참고용 Frontier Exploration 패키지)
+
+자체 구현한 `taeyoung_explorer`와 비교/참고하기 위해 [`robo-friends/m-explore-ros2`](https://github.com/robo-friends/m-explore-ros2)를 `src/m-explore-ros2`에 clone하고, `explore_lite`(frontier 탐색), `explore_lite_msgs`, `multirobot_map_merge`(다중 로봇 맵 병합) 패키지를 빌드해두었습니다.
+
+### 4.1 Clone (이미 되어 있음)
+```zsh
+cd ~/2D-SLAM-Team-Project/src
+git clone https://github.com/robo-friends/m-explore-ros2.git
+```
+
+### 4.2 Build
+```zsh
+cd ~/2D-SLAM-Team-Project
+colcon build --symlink-install --packages-select explore_lite_msgs explore_lite multirobot_map_merge
+source install/setup.zsh
+```
+
+### 4.3 실행 (Terminal 5 대신 사용 가능)
+Gazebo(Terminal 1~2) + Cartographer(Terminal 3) + Nav2(Terminal 4)를 켠 상태에서, `taeyoung_explorer` 대신 `explore_lite`로 자율 탐색을 해보고 싶다면:
+```zsh
+ros2 launch explore_lite explore.launch.py
+```
+RViz2에서 `Add → By topic → /explore/frontiers`를 추가하면 탐색 중인 frontier(마커)를 확인할 수 있습니다.
+
+> 멀티로봇 맵 병합은 이 프로젝트의 단일 로봇 데모에는 사용하지 않지만, 필요하면 `ros2 launch multirobot_map_merge map_merge.launch.py`로 실행할 수 있습니다.
