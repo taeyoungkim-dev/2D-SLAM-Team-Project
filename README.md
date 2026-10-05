@@ -113,6 +113,11 @@ ros2 launch custom_burger rtabmap_3d.launch.py use_sim_time:=true
 ```zsh
 export TURTLEBOT3_MODEL=burger
 ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger.yaml
+
+ros2 launch turtlebot3_navigation2 navigation2.launch.py \
+  use_sim_time:=true \
+  map:=./maps/map.yaml \
+  params_file:=./custom_burger.yaml
 ```
 
 ### [Terminal 5] 자율 탐색 (taeyoung explorer) 또는 수동 조종
