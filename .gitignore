@@ -62,3 +62,6 @@ ENV/
 .DS_Store
 Thumbs.db
 assets/videos/
+
+# ROS 2 bag data
+nav2_debug/

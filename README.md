@@ -138,7 +138,7 @@ ros2 run turtlebot3_teleop teleop_keyboard
 맵 스캔이 충분히 완료되었다면, 새로운 터미널을 열고 생성된 지도를 저장합니다. (`map`이라는 이름의 `.yaml`과 `.pgm` 파일이 생성됩니다.)
 
 ```zsh
-ros2 run nav2_map_server map_saver_cli -f ~/map
+ros2 run nav2_map_server map_saver_cli -f ./map
 ```
 
 ## 📡 4. m-explore-ros2 (참고용 Frontier Exploration 패키지)
@@ -166,3 +166,39 @@ ros2 launch explore_lite explore.launch.py
 RViz2에서 `Add → By topic → /explore/frontiers`를 추가하면 탐색 중인 frontier(마커)를 확인할 수 있습니다.
 
 > 멀티로봇 맵 병합은 이 프로젝트의 단일 로봇 데모에는 사용하지 않지만, 필요하면 `ros2 launch multirobot_map_merge map_merge.launch.py`로 실행할 수 있습니다.
+
+
+export TURTLEBOT3_MODEL=burger
+
+ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py \
+  x_pose:=-6.7 \
+  y_pose:=-3.16
+
+ros2 launch ./assets/objects/spawn_rgb_balls.launch.py
+
+ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
+
+ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger.yaml
+
+ros2 launch turtlebot3_navigation2 navigation2.launch.py \
+  use_sim_time:=true \
+  map:=./maps/map.yaml \
+  params_file:=./custom_burger.yaml
+```
+
+ros2 run turtlebot3_teleop teleop_keyboard
+
+
+
+
+
+ros2 bag record -o nav2_debug \
+  /cmd_vel \
+  /cmd_vel_nav \
+  /evaluation \
+  /odom
+
+
+ros2 bag info nav2_debug
+
+python3 analyze_nav2_bag.py nav2_debug
