@@ -20,6 +20,7 @@
 
 ```zsh
 # Gazebo 11 및 ROS 2 브릿지 설치
+sudo apt update
 sudo apt install -y gazebo ros-humble-gazebo-ros-pkgs
 ```
 
@@ -27,18 +28,23 @@ sudo apt install -y gazebo ros-humble-gazebo-ros-pkgs
 로봇 구동과 매핑에 필요한 공식 패키지들을 설치합니다.
 
 ```zsh
-sudo apt install ros-humble-cartographer ros-humble-cartographer-ros
-sudo apt install ros-humble-navigation2 ros-humble-nav2-bringup
-sudo apt install ros-humble-dynamixel-sdk
-sudo apt install ros-humble-turtlebot3-msgs
-sudo apt install ros-humble-turtlebot3
-sudo apt install ros-humble-turtlebot3-gazebo
+sudo apt install -y \
+  ros-humble-cartographer \
+  ros-humble-cartographer-ros \
+  ros-humble-navigation2 \
+  ros-humble-nav2-bringup \
+  ros-humble-dynamixel-sdk \
+  ros-humble-turtlebot3-msgs \
+  ros-humble-turtlebot3 \
+  ros-humble-turtlebot3-gazebo
 ```
 
 ### 1.3 Gazebo 모델 데이터 수동 다운로드 (초기 로딩 지연 방지)
 Gazebo 첫 실행 시 모델 다운로드로 인한 응답 없음(Timeout) 현상을 방지하기 위해 미리 모델 데이터를 클론합니다.
 
+
 ```zsh
+#2.1 명령을 한번 실행해야 .gazebo 파일이 생김
 cd ~/.gazebo
 rm -rf models
 git clone https://github.com/osrf/gazebo_models.git models
@@ -168,6 +174,8 @@ RViz2에서 `Add → By topic → /explore/frontiers`를 추가하면 탐색 중
 > 멀티로봇 맵 병합은 이 프로젝트의 단일 로봇 데모에는 사용하지 않지만, 필요하면 `ros2 launch multirobot_map_merge map_merge.launch.py`로 실행할 수 있습니다.
 
 
+
+### my instructions
 export TURTLEBOT3_MODEL=burger
 
 ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py \
