@@ -159,14 +159,39 @@ git clone https://github.com/robo-friends/m-explore-ros2.git
 
 ### 4.2 Build
 ```zsh
-cd ~/2D-SLAM-Team-Project
+cd ~/2D-SLAM-Team-Project/robot_ws
 colcon build --symlink-install --packages-select explore_lite_msgs explore_lite multirobot_map_merge
 source install/setup.zsh
 ```
+### 4.3 파라미터 변경
+/home/taeyoung/workspace/2D-SLAM-Team-Project/robot_ws/src/m-explore-ros2/explore/config/params.yaml
+의 값을 변경해야함
 
-### 4.3 실행 (Terminal 5 대신 사용 가능)
+/**:
+  ros__parameters:
+    robot_base_frame: base_link
+    return_to_init: true
+    #edited by tyk
+    #costmap_topic: map
+    costmap_topic: explore_map
+    #costmap_updates_topic: map_updates
+    costmap_updates_topic: explore_map_updates
+    visualize: true
+    planner_frequency: 0.15
+    progress_timeout: 30.0
+    potential_scale: 3.0
+    orientation_scale: 0.0
+    gain_scale: 1.0
+    transform_tolerance: 0.3
+    #min_frontier_size: 0.75
+    min_frontier_size: 0.05
+
+
+### 4.4 실행 (Terminal 5 대신 사용 가능)
 Gazebo(Terminal 1~2) + Cartographer(Terminal 3) + Nav2(Terminal 4)를 켠 상태에서, `taeyoung_explorer` 대신 `explore_lite`로 자율 탐색을 해보고 싶다면:
 ```zsh
+python3 ./robot_ws/scripts/map_threshold_node.py
+
 ros2 launch explore_lite explore.launch.py
 ```
 RViz2에서 `Add → By topic → /explore/frontiers`를 추가하면 탐색 중인 frontier(마커)를 확인할 수 있습니다.
@@ -196,7 +221,9 @@ ros2 launch turtlebot3_navigation2 navigation2.launch.py \
 
 ros2 run turtlebot3_teleop teleop_keyboard
 
+python3 ./robot_ws/scripts/map_threshold_node.py
 
+ros2 launch explore_lite explore.launch.py
 
 
 
