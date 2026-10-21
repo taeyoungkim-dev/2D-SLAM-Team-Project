@@ -37,8 +37,11 @@ class SimpleCoverage(Node):
     def __init__(self):
         super().__init__('simple_coverage')
 
+        # publisher setting
         qos = QoSProfile(
+            #Queue size : 1
             depth=1,
+            # Here to read
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL
         )

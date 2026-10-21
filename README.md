@@ -196,8 +196,6 @@ ros2 launch explore_lite explore.launch.py
 ```
 RViz2에서 `Add → By topic → /explore/frontiers`를 추가하면 탐색 중인 frontier(마커)를 확인할 수 있습니다.
 
-> 멀티로봇 맵 병합은 이 프로젝트의 단일 로봇 데모에는 사용하지 않지만, 필요하면 `ros2 launch multirobot_map_merge map_merge.launch.py`로 실행할 수 있습니다.
-
 
 
 ### my instructions
@@ -237,3 +235,15 @@ ros2 bag record -o nav2_debug \
 ros2 bag info nav2_debug
 
 python3 analyze_nav2_bag.py nav2_debug
+
+## For real robot
+
+ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=false
+
+ros2 launch nav2_bringup navigation_launch.py use_sim_time:=false params_file:=./custom_burger.yaml
+
+python3 ./robot_ws/scripts/map_threshold_node.py
+
+ros2 launch explore_lite explore.launch.py
+
+ros2 run nav2_map_server map_saver_cli -f ./maps/my_map
