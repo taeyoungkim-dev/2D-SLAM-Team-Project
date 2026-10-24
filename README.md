@@ -84,6 +84,7 @@ ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py \
   x_pose:=-6.7 \
   y_pose:=-3.16
 
+ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
 
 
 # 2. World Map (기본 장애물 맵)
@@ -205,25 +206,29 @@ ros2 launch turtlebot3_gazebo turtlebot3_house.launch.py \
   x_pose:=-6.7 \
   y_pose:=-3.16
 
+ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
+
 ros2 launch ./assets/objects/spawn_rgb_balls.launch.py
 
 ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
 
-ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger.yaml
+ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger_rpp.yaml
 
 ros2 launch turtlebot3_navigation2 navigation2.launch.py \
   use_sim_time:=true \
   map:=./maps/map.yaml \
-  params_file:=./custom_burger.yaml
+  params_file:=./custom_burger_rpp.yaml
 ```
 
 ros2 run turtlebot3_teleop teleop_keyboard
 
 python3 ./robot_ws/scripts/map_threshold_node.py
 
+python3 ./robot_ws/scripts/coverage_cleaner.py
+
 ros2 launch explore_lite explore.launch.py
 
-
+ros2 run nav2_map_server map_saver_cli -f ./map
 
 ros2 bag record -o nav2_debug \
   /cmd_vel \
@@ -236,7 +241,21 @@ ros2 bag info nav2_debug
 
 python3 analyze_nav2_bag.py nav2_debug
 
-## For real robot
+
+python3 ./robot_ws/scripts/coverage_cleaner.py --ros-args \
+  -p use_sim_time:=true \
+  -p send_to_nav2:=false \
+  -p tf_timeout_sec:=1.5 \
+  -p tracker_max_gap_sec:=1.5
+
+
+python3 ./robot_ws/scripts/coverage_cleaner.py --ros-args \
+  -p use_sim_time:=true \
+  -p tf_timeout_sec:=1.5 \
+  -p tracker_max_gap_sec:=1.5
+
+
+### For real robot
 
 ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=false
 

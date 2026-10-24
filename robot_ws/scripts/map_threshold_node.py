@@ -29,7 +29,8 @@ class MapThresholdNode(Node):
         sub_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.VOLATILE,
+            #durability=DurabilityPolicy.VOLATILE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
 
         # Keep the latest converted map available for late subscribers.
