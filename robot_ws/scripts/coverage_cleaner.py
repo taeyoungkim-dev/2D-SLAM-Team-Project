@@ -59,7 +59,7 @@ from __future__ import annotations
 # ===== 쉽게 조절할 설정 (단위: m, 수정 후 노드 재시작) =====
 # 계획 경로의 최소 벽 거리 = 정지 기준 거리 + 아래 추가 여유.
 # 초기 시험값 0.05m = 5cm. 실제 추종/위치 추정 오차에 맞춰 조절한다.
-PLANNING_EXTRA_MARGIN_M = 0.05
+PLANNING_EXTRA_MARGIN_M = 0.1
 
 import heapq
 import json
@@ -489,7 +489,10 @@ def ros_node_class():
                 coverage_clearance=0.02, lane_spacing=0.15, coverage_width=0.15,
                 auto_plan=True, send_to_nav2=True, follow_path_action_name='/follow_path',
                 controller_id='FollowPath', goal_checker_id='', controller_server='/controller_server',
-                configure_goal_checker=True, goal_xy_tolerance=0.02, endpoint_tolerance=0.03,
+                configure_goal_checker=True,
+                #edit by tyk
+                #goal_xy_tolerance=0.02, endpoint_tolerance=0.03,
+                goal_xy_tolerance=0.02, endpoint_tolerance=0.1,
                 tracker_update_period_sec=0.1, tf_timeout_sec=1.0, tracker_max_speed=0.4,
                 tracker_max_gap_sec=0.5, max_leg_length=2.0, path_resolution=0.025,
                 retry_delay_sec=2.0, max_failures=3, max_no_progress_passes=3,
