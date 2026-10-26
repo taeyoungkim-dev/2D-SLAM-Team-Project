@@ -1,6 +1,6 @@
 /// 서버(`/ws/app`)가 브로드캐스트하는 WebSocket 이벤트 envelope.
 ///
-/// `{"type": "telemetry" | "obstacle_alert" | "obstacle_update" |
+/// `{"type": "telemetry" | "obstacle_alert" | "obstacle_update" | "map_update" |
 ///   "robot_connected" | "robot_disconnected", "payload": {...}}`
 class WsEvent {
   final String type;

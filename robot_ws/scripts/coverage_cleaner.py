@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 """Standalone coverage planner/tracker for ROS 2 Humble + Nav2 RPP.
 
+변경 (2026-10-26)
+  * reclean_unvisited(기본 true): 경로 정상 완료 후 미방문 셀 추가 청소 여부.
+    false이면 1회 경로 완료 후 정지하며 방문 기록은 유지한다(자동 복귀 없음).
+    오류/취소에 따른 복구 재계획은 유지하며, ~/resume으로 다시 시작할 수 있다.
+  * 독립 스위치: configure_goal_checker / check_endpoint / check_safe_position.
+    모두 기본 true. --ros-args -p 이름:=false 로 끈다(변경 후 노드 재시작).
+  * 끝점 검사 실패 로그에 goal_xy, robot_xy, error, tolerance, TF stamp를 출력.
+  * 구간 성공 인정 시 failures를 0으로 초기화: max_failures는 연속 실패 한도.
+  * check_endpoint=false: Nav2 성공 후 끝점 거리 검사를 생략한다.
+  * check_safe_position=false: footprint/여유 기반 현재 위치·연결 경로 검사를 끈다.
+    계획 영역 밖에서는 known-free 경로로 계획 영역에 연결한다. 청소 계획 자체의
+    장애물 여유, known-free 경로 조건, TF 시간/연속성 검사, Nav2 검사는 유지한다.
+  * configure_goal_checker=false는 기존 Nav2 설정값을 복구하지 않는다.
+
 기준: visual_robot_cleaner_project_source_updated.md (2026-10-21).
 입력: /explore_map (OccupancyGrid); TF frame은 메시지 header.frame_id 사용.
 실행: python3 coverage_cleaner.py --ros-args -p use_sim_time:=true
@@ -8,7 +22,6 @@
 알고리즘 자체 검사: python3 coverage_cleaner.py --self-test (ROS 불필요).
 TF 진단: 실패 사유별로 측정값/기준값과 Nav2 취소 요청 이유를 출력한다.
   tf_timeout_sec는 TF age 허용값, tracker_max_gap_sec는 관측 간격 허용값이다.
-  이 진단 추가는 정지 조건/기본 임계값/재시도 횟수 처리를 변경하지 않는다.
 의존성: numpy, scipy; 실행 시 rclpy, tf2_ros, nav2_msgs, nav_msgs,
         geometry_msgs, action_msgs, std_msgs, std_srvs, rcl_interfaces.
 
@@ -18,17 +31,18 @@ TF 진단: 실패 사유별로 측정값/기준값과 Nav2 취소 요청 이유�
   * 정지 판정: 원형 footprint + coverage_clearance + 격자 보정.
     경로 계획: 정지 판정 거리 + PLANNING_EXTRA_MARGIN_M(아래 상수).
     여유 때문에 계획할 수 없는 벽 주변/좁은 통로는 청소 완료로 기록하지 않는다.
-    시작 위치가 계획 영역 밖이면 waiting_for_planning_area로 대기한다.
+    check_safe_position=true일 때 시작 위치가 계획 영역 밖이면 대기한다.
     coverage_width는 실제로 덮는 폭이며, 기본 0.15m는 설정값이지 실측값이 아니다.
   * 왕복 sweep + A* 연결 + 계획상 누락 셀 보충. 작은 구간도 버리지 않는다.
   * 계획한 경로가 아니라 실제 TF 이동으로 visited를 갱신한다. Nav2 성공만으로
-    전체 완료를 선언하지 않는다. 실제 미방문 영역이 있으면 다시 계획한다.
+    전체 완료를 선언하지 않는다. reclean_unvisited=true이면 실제 미방문 영역을
+    다시 계획한다. false의 complete_pass는 경로 완료이며 전 셀 청소 완료가 아니다.
   * 지도 원점이 정수 셀만큼 이동/확장하면 기록을 보존한다. 해상도/회전/frame
     변경 또는 비정수 셀 이동은 오기록을 피하기 위해 기록을 초기화한다.
   * 전역 위치 추정의 과거 궤적 자체가 바뀌는 SLAM loop closure는 visited를
     자동으로 보정할 수 없다. 이 경우 ~/reset 서비스를 사용한다.
   * FollowPath를 회전 지점마다 분리한다. 설정된 Nav2 goal checker의
-    xy_goal_tolerance를 실행 시 최대 0.02m로 낮춘다(파일은 수정하지 않음).
+    xy_goal_tolerance를 실행 시 goal_xy_tolerance 이하로 낮춘다(기본 0.02m).
     configure_goal_checker:=false이면 이 자동 설정을 끌 수 있다.
     다른 Nav2 목표 발행기(e-explore 포함)는 coverage 실행 전에 정지해야 한다.
 
@@ -58,8 +72,8 @@ from __future__ import annotations
 
 # ===== 쉽게 조절할 설정 (단위: m, 수정 후 노드 재시작) =====
 # 계획 경로의 최소 벽 거리 = 정지 기준 거리 + 아래 추가 여유.
-# 초기 시험값 0.05m = 5cm. 실제 추종/위치 추정 오차에 맞춰 조절한다.
-PLANNING_EXTRA_MARGIN_M = 0.1
+# 현재 시험값 0.2m = 20cm. 실제 추종/위치 추정 오차에 맞춰 조절한다.
+PLANNING_EXTRA_MARGIN_M = 0.2
 
 import heapq
 import json
@@ -79,7 +93,6 @@ World = tuple[float, float]   # (x, y), meters
 CROSS = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
 NEIGHBORS = ((0, 1), (1, 0), (0, -1), (-1, 0),
              (1, 1), (1, -1), (-1, 1), (-1, -1))
-
 
 class PlanningError(RuntimeError):
     pass
@@ -384,13 +397,14 @@ class CoverageTracker:
         self.visited[y0:y1, x0:x1] |= covered & free[y0:y1, x0:x1]
 
     def update(self, pose: World, stamp_sec: float, free: np.ndarray, safe: np.ndarray,
-               max_speed: float = 0.4, max_gap: float = 0.5) -> bool:
+               max_speed: float = 0.4, max_gap: float = 0.5,
+               check_safe_position: bool = True) -> bool:
         """Keep the original bool contract; last_diagnostic explains any rejection."""
         self.last_diagnostic = None
         previous = self.previous
         self.previous = pose, stamp_sec
         pixel = self.meta.pixel(*pose)
-        if not inside(safe, pixel):
+        if check_safe_position and not inside(safe, pixel):
             in_bounds = 0 <= pixel[0] < safe.shape[0] and 0 <= pixel[1] < safe.shape[1]
             self.last_diagnostic = TrackingDiagnostic(
                 'unsafe_pose',
@@ -420,7 +434,7 @@ class CoverageTracker:
             elif 0 < dt <= max_gap:
                 allowed = max_speed * dt + 0.01
                 if dist <= allowed:
-                    if line_is_safe(old, pose, self.meta, safe):
+                    if not check_safe_position or line_is_safe(old, pose, self.meta, safe):
                         a = old
                     else:
                         continuous = False
@@ -487,9 +501,9 @@ def ros_node_class():
                 map_topic='/explore_map', robot_base_frame='base_footprint',
                 occupied_threshold=50, robot_radius=math.hypot(0.14, 0.14) / 2,
                 coverage_clearance=0.02, lane_spacing=0.15, coverage_width=0.15,
-                auto_plan=True, send_to_nav2=True, follow_path_action_name='/follow_path',
+                auto_plan=True, send_to_nav2=True, reclean_unvisited=True, follow_path_action_name='/follow_path',
                 controller_id='FollowPath', goal_checker_id='', controller_server='/controller_server',
-                configure_goal_checker=True,
+                configure_goal_checker=True, check_endpoint=True, check_safe_position=True,
                 #edit by tyk
                 #goal_xy_tolerance=0.02, endpoint_tolerance=0.03,
                 goal_xy_tolerance=0.02, endpoint_tolerance=0.1,
@@ -509,7 +523,8 @@ def ros_node_class():
             if (not math.isfinite(self.coverage_clearance) or self.coverage_clearance < 0
                     or not 1 <= self.occupied_threshold <= 100
                     or min(self.max_failures, self.max_no_progress_passes, self.max_astar_expansions) < 1
-                    or self.endpoint_tolerance < self.goal_xy_tolerance):
+                    or (self.configure_goal_checker and self.check_endpoint
+                        and self.endpoint_tolerance < self.goal_xy_tolerance)):
                 raise ValueError('Invalid threshold, clearance, retry limit or endpoint tolerance')
             if self.coverage_width > 2 * self.robot_radius:
                 raise ValueError('coverage_width must fit inside the collision radius to avoid painting through walls')
@@ -558,6 +573,8 @@ def ros_node_class():
             self.retry_at = 0.0
             self.failures = self.no_progress_passes = 0
             self.pass_start_count = None
+            self.pass_in_progress = False
+            self.single_pass_finished = False
             self.last_pose = None
             self.last_debug = 0.0
             self.last_warning = {}
@@ -568,6 +585,16 @@ def ros_node_class():
             self.timer = self.create_timer(self.tracker_update_period_sec, self.tick)
             self.get_logger().info(f'Coverage input={self.map_topic}; base={self.robot_base_frame}; '
                                    f'width={self.coverage_width:.3f}m; send_to_nav2={self.send_to_nav2}')
+            self.get_logger().info(
+                f'Checks: configure_goal_checker={self.configure_goal_checker}; '
+                f'check_endpoint={self.check_endpoint}; '
+                f'check_safe_position={self.check_safe_position}; '
+                f'goal_xy_tolerance={self.goal_xy_tolerance:.3f}m; '
+                f'endpoint_tolerance={self.endpoint_tolerance:.3f}m; '
+                'successful segments reset failures to 0')
+            self.get_logger().info(
+                f'Completion: reclean_unvisited={self.reclean_unvisited}; '
+                'false stops after a normally completed path; recovery replanning remains enabled')
             self.get_logger().info(
                 f'Clearance: stop={self.coverage_clearance:.3f}m; '
                 f'planning={self.coverage_clearance + self.planning_extra_margin:.3f}m '
@@ -592,6 +619,7 @@ def ros_node_class():
         def block(self, message):
             self.halted, self.error, self.state = True, message, 'blocked'
             self.legs.clear()
+            self.pass_in_progress = False
             self.cancel('blocked')
             self.get_logger().error(message)
 
@@ -635,15 +663,19 @@ def ros_node_class():
             self.pass_start_count = None  # Different map denominators cannot be compared.
             if old_meta is not None and old_meta != meta:
                 self.legs.clear()
+                self.pass_in_progress = False
                 self.cancel('map_changed')
             elif self.active_leg and (
-                    not line_is_safe(*self.active_leg, meta, self.safe)
-                    or not inside(self.plan_safe, meta.pixel(*self.active_leg[1]))):
+                    not line_is_safe(*self.active_leg, meta, self.execution_mask())
+                    or not inside(self.plan_safe if self.check_safe_position else self.free,
+                                  meta.pixel(*self.active_leg[1]))):
                 self.legs.clear()
+                self.pass_in_progress = False
                 self.cancel('map_changed')
             elif any(not line_is_safe(a, b, meta, self.plan_safe) for a, b in self.legs):
                 # Current segment remains safe. Replan after its result.
                 self.legs.clear()
+                self.pass_in_progress = False
 
         def robot_pose(self):
             self.last_tf_diagnostic = ''
@@ -688,6 +720,20 @@ def ros_node_class():
 
         def planning_start(self, pose):
             start = self.meta.pixel(*pose)
+            if not self.check_safe_position and not inside(self.plan_safe, start):
+                # The coverage sweep keeps its original clearance. Only the entry
+                # connector may use known-free cells inside that clearance margin.
+                reachable_free = reachable_map(self.free, start)
+                candidates = np.argwhere(self.plan_safe & reachable_free)
+                if not len(candidates):
+                    raise PlanningError('No planning area is reachable through known-free cells')
+                distances = np.sum((candidates - np.asarray(start)) ** 2, axis=1)
+                anchor = tuple(int(v) for v in candidates[int(np.argmin(distances))])
+                self.warn('relaxed_planning_start',
+                          f'check_safe_position=False: robot_xy={pose}; '
+                          f'planning_anchor_xy={self.meta.world(*anchor)}; '
+                          'entry connector uses known-free cells without footprint clearance')
+                return anchor
             if not inside(self.safe, start):
                 raise PlanningError('Robot is outside the safe map. Check TF, footprint and clearance.')
             if not inside(self.plan_safe, start):
@@ -697,9 +743,14 @@ def ros_node_class():
                     'Place the robot farther from obstacles before planning.')
             return start
 
+        def execution_mask(self):
+            """Disabling clearance checks still preserves known-free path geometry."""
+            return self.safe if self.check_safe_position else self.free
+
         def wait_for_planning_area(self, message):
             self.cancel('planning_margin')
             self.legs.clear()
+            self.pass_in_progress = False
             self.plan_version = -1
             self.pass_start_count = None
             self.state = 'waiting_for_planning_area'
@@ -714,6 +765,11 @@ def ros_node_class():
             self.target = self.free & binary_dilation(reachable, structure=kernel)
 
         def tick(self):
+            # Latch completion until explicit resume/reset. TF loss or map
+            # updates after stopping must not start an unsolicited cleanup pass.
+            if self.single_pass_finished:
+                self.publish_status()
+                return
             wall = time.monotonic()
             if self.meta is None:
                 self.publish_status()
@@ -722,6 +778,7 @@ def ros_node_class():
             if measured is None:
                 self.tracker.previous = None
                 self.legs.clear()
+                self.pass_in_progress = False
                 self.plan_version = -1
                 self.target = None
                 self.cancel('tf_lost')
@@ -733,9 +790,11 @@ def ros_node_class():
             self.last_pose = pose
             if self.enabled and not self.halted and self.send_to_nav2:
                 continuous = self.tracker.update(pose, stamp_sec, self.free, self.safe,
-                                                 self.tracker_max_speed, self.tracker_max_gap_sec)
+                                                 self.tracker_max_speed, self.tracker_max_gap_sec,
+                                                 check_safe_position=self.check_safe_position)
                 if not continuous:
                     self.legs.clear()
+                    self.pass_in_progress = False
                     self.plan_version = -1
                     self.target = None
                     self.cancel('localization_jump')
@@ -749,6 +808,7 @@ def ros_node_class():
             except PlanningError as exc:
                 self.cancel('unsafe_pose')
                 self.legs.clear()
+                self.pass_in_progress = False
                 self.state = 'waiting_for_safe_pose'
                 self.warn('unsafe_pose', str(exc))
                 self.publish_status()
@@ -795,6 +855,22 @@ def ros_node_class():
                 self.dispatch(pose)
                 return
             remaining = int(np.count_nonzero(self.target & ~self.tracker.visited))
+            # An empty queue alone is insufficient: failures, cancellations and
+            # map/TF invalidation also clear it. Only a valid, drained pass ends
+            # single-pass cleaning; recovery plans use the existing retry flow.
+            if self.pass_in_progress and not self.reclean_unvisited:
+                self.pass_in_progress = False
+                self.single_pass_finished = True
+                self.pass_start_count = None
+                self.state = 'complete_pass' if remaining else 'complete_reachable'
+                self.error = ''
+                self.get_logger().info(
+                    f'Coverage path complete; reclean_unvisited=False; '
+                    f'remaining_target_cells={remaining}; additional cleanup disabled. '
+                    'Visited records retained; call ~/resume to start another pass.')
+                self.publish_debug()
+                return
+            self.pass_in_progress = False
             if remaining == 0:
                 if self.state != 'complete_reachable':
                     unreachable = np.count_nonzero(self.free & ~self.target & ~self.tracker.visited)
@@ -824,6 +900,10 @@ def ros_node_class():
             except PlanningMarginError as exc:
                 self.wait_for_planning_area(exc)
                 return
+            except PlanningError as exc:
+                self.state = 'waiting_for_safe_pose'
+                self.warn('planning_start', str(exc))
+                return
             self.state = 'planning'
             self.plan_version = self.map_version
             self.plan_future = self.pool.submit(plan_coverage, self.plan_safe.copy(), self.free.copy(), self.meta,
@@ -836,8 +916,20 @@ def ros_node_class():
             except PlanningMarginError as exc:
                 self.wait_for_planning_area(exc)
                 return False
+            except PlanningError as exc:
+                self.state = 'waiting_for_safe_pose'
+                self.warn('planning_start', str(exc))
+                return False
             world = [self.meta.world(*p) for p in plan.pixels]
-            if not line_is_safe(pose, world[0], self.meta, self.plan_safe):
+            if not self.check_safe_position:
+                try:
+                    connector = astar(self.free, self.meta.pixel(*pose), plan.pixels[0],
+                                      self.max_astar_expansions)
+                except PlanningError as exc:
+                    self.block(f'Cannot connect to the coverage plan through known-free cells: {exc}')
+                    return False
+                world = [self.meta.world(*p) for p in connector[:-1]] + world
+            elif not line_is_safe(pose, world[0], self.meta, self.plan_safe):
                 self.block('Cannot safely connect the actual robot pose to the planned first cell')
                 return False
             if math.dist(pose, world[0]) > 1e-9:
@@ -848,6 +940,7 @@ def ros_node_class():
                 self.state = 'preview'
                 return True
             self.legs = deque(split_legs(world, self.max_leg_length))
+            self.pass_in_progress = True
             self.pass_start_count = int(np.count_nonzero(self.target & self.tracker.visited))
             self.state = 'executing'
             self.get_logger().info(f'Plan: {len(plan.pixels)} corners, {len(self.legs)} FollowPath segments; '
@@ -952,9 +1045,11 @@ def ros_node_class():
             # Planned endpoints retain the extra clearance. The actual robot
             # may use the buffer while tracking back towards that path; applying
             # plan_safe to its measured pose would recreate the original stop.
-            if (not inside(self.plan_safe, self.meta.pixel(*goal))
-                    or not line_is_safe(pose, goal, self.meta, self.safe)):
+            if (not inside(self.plan_safe if self.check_safe_position else self.free,
+                           self.meta.pixel(*goal))
+                    or not line_is_safe(pose, goal, self.meta, self.execution_mask())):
                 self.legs.clear()
+                self.pass_in_progress = False
                 self.pass_start_count = None
                 self.state = 'replanning'
                 return
@@ -991,6 +1086,7 @@ def ros_node_class():
                 if self.cancel_reason:
                     self.cancel_reason = ''
                     self.legs.clear()
+                    self.pass_in_progress = False
                     return
                 self.failed('Nav2 rejected FollowPath')
                 return
@@ -1047,19 +1143,39 @@ def ros_node_class():
             self.active_pub.publish(self.path_message([]))
             if reason:
                 self.legs.clear()
+                self.pass_in_progress = False
                 if reason == 'timeout':
                     self.failed('FollowPath timed out')
                 return
-            measured = self.robot_pose()
-            if status == GoalStatus.STATUS_SUCCEEDED and measured is not None and leg is not None:
-                pose, stamp_sec = measured
-                if math.dist(pose, leg[1]) > self.endpoint_tolerance:
-                    self.failed('Nav2 reported success before reaching the segment endpoint. '
-                                'Check goal_checker xy_goal_tolerance and TF.')
-                    return
-                self.tracker.update(pose, stamp_sec, self.free, self.safe,
-                                    self.tracker_max_speed, self.tracker_max_gap_sec)
-                self.log_tracking_diagnostic('goal_result')
+            if status == GoalStatus.STATUS_SUCCEEDED and leg is not None:
+                measured = self.robot_pose()
+                if self.check_endpoint:
+                    if measured is None:
+                        self.failed(f'Endpoint check unavailable after Nav2 success: '
+                                    f'goal_xy=({leg[1][0]:.6f},{leg[1][1]:.6f})m; '
+                                    f'robot_xy=unavailable; error=unavailable; '
+                                    f'{self.last_tf_diagnostic}')
+                        return
+                    pose, stamp_sec = measured
+                    error = math.dist(pose, leg[1])
+                    if error > self.endpoint_tolerance:
+                        self.failed(
+                            'Nav2 reported success but endpoint check failed: '
+                            f'goal_xy=({leg[1][0]:.6f},{leg[1][1]:.6f})m; '
+                            f'robot_xy=({pose[0]:.6f},{pose[1]:.6f})m; '
+                            f'error={error:.6f}m > tolerance={self.endpoint_tolerance:.6f}m; '
+                            f'tf_stamp={stamp_sec:.9f}s; frame={self.meta.frame}')
+                        return
+                if measured is not None:
+                    pose, stamp_sec = measured
+                    self.tracker.update(pose, stamp_sec, self.free, self.safe,
+                                        self.tracker_max_speed, self.tracker_max_gap_sec,
+                                        check_safe_position=self.check_safe_position)
+                    self.log_tracking_diagnostic('goal_result')
+                if self.failures:
+                    self.get_logger().info(
+                        f'FollowPath segment accepted: consecutive failures reset {self.failures} -> 0')
+                self.failures = 0
                 self.error = ''
                 self.state = 'checking_coverage'
                 return
@@ -1067,11 +1183,13 @@ def ros_node_class():
 
         def failed(self, message):
             self.legs.clear()
+            self.pass_in_progress = False
             self.pass_start_count = None
             self.failures += 1
             self.error = message
             if self.failures >= self.max_failures:
-                self.block(message + ' Retry limit reached; fix the cause then call ~/resume.')
+                self.block(message + f' Retry {self.failures}/{self.max_failures}. '
+                           'Retry limit reached; fix the cause then call ~/resume.')
             else:
                 self.state, self.retry_at = 'retry_wait', time.monotonic() + self.retry_delay_sec
                 self.get_logger().warning(message + f' Retry {self.failures}/{self.max_failures}.')
@@ -1079,6 +1197,7 @@ def ros_node_class():
         def on_pause(self, request, response):
             self.enabled = False
             self.legs.clear()
+            self.pass_in_progress = False
             self.plan_version = -1
             if self.tracker:
                 self.tracker.previous = None
@@ -1088,6 +1207,7 @@ def ros_node_class():
             return response
 
         def on_resume(self, request, response):
+            self.single_pass_finished = False
             self.enabled, self.halted, self.error = True, False, ''
             self.failures = self.no_progress_passes = 0
             self.pass_start_count = None
@@ -1096,11 +1216,13 @@ def ros_node_class():
             self.target = None
             self.preview_version = -1
             self.legs.clear()
+            self.pass_in_progress = False
             self.cancel('resume_replan')
             response.success, response.message = True, 'Will replan remaining cells when map/TF/Nav2 are ready'
             return response
 
         def on_reset(self, request, response):
+            self.single_pass_finished = False
             self.on_pause(request, response)
             if self.tracker:
                 self.tracker.visited.fill(False)
@@ -1115,7 +1237,13 @@ def ros_node_class():
         def publish_status(self):
             status = dict(state=self.state, error=self.error, map_topic=self.map_topic,
                           map_version=self.map_version, navigation_active=self.action_busy,
-                          planning_extra_margin_m=self.planning_extra_margin)
+                          planning_extra_margin_m=self.planning_extra_margin,
+                          failures=self.failures,
+                          reclean_unvisited=self.reclean_unvisited,
+                          single_pass_finished=self.single_pass_finished,
+                          configure_goal_checker=self.configure_goal_checker,
+                          check_endpoint=self.check_endpoint,
+                          check_safe_position=self.check_safe_position)
             if self.target is not None:
                 count = int(np.count_nonzero(self.target))
                 done = int(np.count_nonzero(self.target & self.tracker.visited))

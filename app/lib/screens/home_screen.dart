@@ -91,6 +91,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
           return MapCanvas(
             telemetry: controller.telemetry,
+            mapInfo: controller.displayedMapInfo,
+            mapImageBytes: controller.mapImageBytes,
             obstacles: controller.obstacles,
             onObstacleTap: (obstacle) =>
                 showObstacleDetailSheet(context, obstacle),

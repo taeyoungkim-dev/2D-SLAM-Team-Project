@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import '../core/app_config.dart';
 import '../models/history_record.dart';
+import '../models/map_info.dart';
 import '../models/obstacle_log.dart';
 import '../models/robot_telemetry.dart';
 
@@ -85,6 +88,36 @@ class ApiClient {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw ApiException(res.statusCode, res.body);
     }
+  }
+
+  // -- Map (지도 이미지 + 해상도/원점/시작 위치) -------------------------
+  /// 아직 지도가 업로드되지 않았거나(404) 메타데이터가 없으면 null.
+  Future<MapInfo?> getLatestMap() async {
+    final res = await _http.get(_uri('/api/map/latest'));
+    if (res.statusCode == 404) return null;
+    return MapInfo.tryParse(_decode(res));
+  }
+
+  /// 지도 PNG를 통째로 내려받는다. 본문이 끝까지 오지 않으면 예외가 나므로, 반환값은 항상
+  /// 완전한 파일이다. 서버가 유휴 keep-alive 연결을 닫는 시점과 요청이 겹치면 첫 시도가
+  /// 실패할 수 있어(지도 업로드 주기 ≈ uvicorn keep-alive 5초) 짧게 몇 번 재시도한다.
+  Future<Uint8List> downloadMapImage(String url, {int attempts = 3}) async {
+    Object? lastError;
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final res = await _http
+            .get(Uri.parse(url))
+            .timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
+          return res.bodyBytes;
+        }
+        lastError = ApiException(res.statusCode, 'map image');
+      } catch (e) {
+        lastError = e;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
+    throw lastError ?? StateError('map image download failed');
   }
 
   // -- History (REQ-APP-04, P1) -----------------------------------------

@@ -37,6 +37,38 @@ class Pose2D(MapCoordinate):
 
 
 # ---------------------------------------------------------------------------
+# 지도 메타데이터 (지도 PNG를 월드 좌표와 맞추기 위한 정보)
+# ---------------------------------------------------------------------------
+class MapMeta(BaseModel):
+    """로봇이 ``/explore_map`` (OccupancyGrid) 에서 읽어 지도 PNG와 함께 올리는 값.
+
+    텔레메트리/장애물/목표 좌표는 모두 ``frame_id`` 좌표계(보통 ``map``) 기준이다.
+    PNG는 위쪽이 +y가 되도록 상하 반전되어 있고 1픽셀 = ``resolution`` m 이다.
+
+        px = (x - origin.x) / resolution
+        py = height - (y - origin.y) / resolution
+    """
+
+    frame_id: str = "map"
+    resolution: float = Field(gt=0, description="m/pixel")
+    width: int = Field(gt=0, description="PNG 가로 픽셀 수")
+    height: int = Field(gt=0, description="PNG 세로 픽셀 수")
+    origin: MapCoordinate = Field(description="PNG 왼쪽 아래 모서리의 frame_id 좌표(m)")
+    start_pose: Pose2D = Field(
+        default_factory=lambda: Pose2D(x=0.0, y=0.0, theta=0.0),
+        description="로봇이 처음 움직이기 시작한 위치(도크). 앱이 이 점을 화면 기준점으로 쓴다.",
+    )
+
+
+class MapInfo(MapMeta):
+    """``GET /api/map/latest`` 응답 / ``map_update`` WebSocket payload."""
+
+    map_image_url: str
+    version: int = 1
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
 # 3.1 Obstacle Log Schema
 # ---------------------------------------------------------------------------
 ObstacleStatus = Literal["uncleared", "cleared", "recleaning"]
@@ -142,6 +174,7 @@ class WSEventType(str, Enum):
     TELEMETRY = "telemetry"
     OBSTACLE_ALERT = "obstacle_alert"
     OBSTACLE_UPDATE = "obstacle_update"
+    MAP_UPDATE = "map_update"
     ROBOT_CONNECTED = "robot_connected"
     ROBOT_DISCONNECTED = "robot_disconnected"
 

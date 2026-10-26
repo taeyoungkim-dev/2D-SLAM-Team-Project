@@ -216,7 +216,7 @@ ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./
 
 ros2 launch turtlebot3_navigation2 navigation2.launch.py \
   use_sim_time:=true \
-  map:=./maps/map.yaml \
+  map:=./maps/world_map.yaml \
   params_file:=./custom_burger_rpp.yaml
 ```
 
@@ -254,6 +254,14 @@ python3 ./robot_ws/scripts/coverage_cleaner.py --ros-args \
   -p tf_timeout_sec:=1.5 \
   -p tracker_max_gap_sec:=1.5
 
+python3 ./robot_ws/scripts/coverage_cleaner.py --ros-args \
+  -p use_sim_time:=true \
+  -p tf_timeout_sec:=1.5 \
+  -p tracker_max_gap_sec:=1.5 \
+  -p configure_goal_checker:=false \
+  -p check_endpoint:=false \
+  -p check_safe_position:=false \
+  -p reclean_unvisited:=false
 
 ### For real robot
 

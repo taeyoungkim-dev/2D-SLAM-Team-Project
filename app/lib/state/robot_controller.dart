@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
 import '../core/app_config.dart';
 import '../models/coordinate.dart';
 import '../models/history_record.dart';
+import '../models/map_info.dart';
 import '../models/obstacle_log.dart';
 import '../models/robot_telemetry.dart';
 import '../models/ws_event.dart';
@@ -22,6 +24,18 @@ class RobotController extends ChangeNotifier {
   final RobotSocketService socket;
 
   RobotTelemetry telemetry = RobotTelemetry.initial();
+
+  /// 서버가 알려준 최신 지도 메타데이터. 이미지가 아직 받아지지 않았을 수 있다.
+  MapInfo? mapInfo;
+
+  /// 화면에 그리는 지도: 이미지와 그 이미지의 메타데이터를 항상 한 쌍으로 갱신한다.
+  /// 새 지도를 내려받는 중이거나 내려받기에 실패해도 이전 지도를 그대로 유지한다
+  /// (지도가 잠깐 사라졌다 나타나는 현상 방지).
+  MapInfo? displayedMapInfo;
+  Uint8List? mapImageBytes;
+  int _requestedMapVersion = -1;
+  int _shownMapVersion = -1; // 서버 데이터가 초기화되어 version 이 되돌아가는 경우를 위해 별도 보관
+  Timer? _mapRetryTimer;
   final Map<String, ObstacleLog> _obstacles = {};
   List<HistoryRecord> history = const [];
 
@@ -51,6 +65,8 @@ class RobotController extends ChangeNotifier {
       _eventSub = socket.events.listen(_onWsEvent);
       _connSub = socket.connectionStream.listen((connected) {
         wsConnected = connected;
+        // 끊겨 있는 동안 놓친 map_update 가 있을 수 있으니 재연결 때 최신 지도를 다시 확인한다.
+        if (connected) unawaited(_refreshMapInfo());
         notifyListeners();
       });
       socket.connect();
@@ -60,6 +76,14 @@ class RobotController extends ChangeNotifier {
   Future<void> _refreshInitialState() async {
     try {
       telemetry = await api.getTelemetry();
+      final fetched = await api.getLatestMap();
+      if (fetched != null && fetched.version < _shownMapVersion) {
+        // 서버가 지도를 초기화해 version 이 처음부터 다시 시작됨. 이미지는 새로 받을 때까지 유지.
+        _shownMapVersion = -1;
+        _requestedMapVersion = -1;
+      }
+      mapInfo = fetched ?? mapInfo;
+      _syncMapImage();
       final list = await api.getObstacles();
       _obstacles
         ..clear()
@@ -93,6 +117,11 @@ class RobotController extends ChangeNotifier {
         _alertController.add(obstacle);
         notifyListeners();
         break;
+      case 'map_update':
+        mapInfo = MapInfo.tryParse(event.payload) ?? mapInfo;
+        _syncMapImage();
+        notifyListeners();
+        break;
       case 'obstacle_update':
         final obstacle = ObstacleLog.fromJson(event.payload);
         _obstacles[obstacle.obstacleId] = obstacle;
@@ -108,6 +137,50 @@ class RobotController extends ChangeNotifier {
         break;
       default:
         break;
+    }
+  }
+
+  Future<void> _refreshMapInfo() async {
+    try {
+      final fetched = await api.getLatestMap();
+      if (fetched != null) {
+        mapInfo = fetched;
+        _syncMapImage();
+      }
+    } catch (_) {
+      // 서버가 아직 준비되지 않았다면 다음 map_update 로 갱신된다.
+    }
+  }
+
+  /// [mapInfo]의 버전이 화면에 그려진 것보다 새로우면 이미지를 내려받는다.
+  void _syncMapImage() {
+    final info = mapInfo;
+    if (info == null || info.version == _requestedMapVersion) return;
+    if (info.version <= _shownMapVersion) return;
+    _requestedMapVersion = info.version;
+    unawaited(_loadMapImage(info));
+  }
+
+  Future<void> _loadMapImage(MapInfo info) async {
+    try {
+      final bytes =
+          await api.downloadMapImage(info.imageUrlFor(config.httpBaseUrl));
+      // 더 새로운 지도가 이미 표시 중이면(응답 순서가 뒤바뀐 경우) 버린다.
+      if (info.version > _shownMapVersion) {
+        mapImageBytes = bytes;
+        displayedMapInfo = info;
+        _shownMapVersion = info.version;
+        notifyListeners();
+      }
+    } catch (_) {
+      // 이전 지도는 그대로 두고 잠시 뒤 다시 시도한다.
+      if (_requestedMapVersion == info.version) {
+        _mapRetryTimer?.cancel();
+        _mapRetryTimer = Timer(const Duration(seconds: 3), () {
+          _requestedMapVersion = -1;
+          _syncMapImage();
+        });
+      }
     }
   }
 
@@ -161,6 +234,7 @@ class RobotController extends ChangeNotifier {
   @override
   void dispose() {
     config.removeListener(_onConfigChanged);
+    _mapRetryTimer?.cancel();
     _eventSub?.cancel();
     _connSub?.cancel();
     _alertController.close();

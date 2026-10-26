@@ -1,6 +1,6 @@
 # taeyoung_coverage
 
-Cartographer가 생성한 `/map` (`nav_msgs/OccupancyGrid`)을 입력으로 받아,
+`/explore_map` (`nav_msgs/OccupancyGrid`)을 입력으로 받아,
 로봇청소기처럼 자유 공간을 빠짐없이 주행하는 **Complete Coverage Path**를
 계산하고, Nav2 Controller Server의 `FollowPath` Action으로 실행시키는
 ROS 2 Python 패키지. 상세 요구사항은 [`README_coverage`](./README_coverage)
@@ -9,13 +9,13 @@ ROS 2 Python 패키지. 상세 요구사항은 [`README_coverage`](./README_cove
 ```text
 Cartographer
     ↓
-/map (nav_msgs/OccupancyGrid)
+/explore_map (nav_msgs/OccupancyGrid)
     ↓
 map_utils.py        (지도 분류, C-space 팽창, A*, 좌표 변환 — ROS 비의존)
     ↓
 coverage_planner.py  (Boustrophedon 지그재그 경로 생성 — ROS 비의존)
     ↓
-coverage_node.py     (ROS2 wiring: /map 구독, TF, Path publish, FollowPath 호출)
+coverage_node.py     (ROS2 wiring: /explore_map 구독, TF, Path publish, FollowPath 호출)
     ↓
 nav_msgs/Path → nav2_msgs/action/FollowPath → Nav2 Controller Server → /cmd_vel
 ```
@@ -45,7 +45,7 @@ taeyoung_coverage/
 
 기존 `taeyoung_explorer/explorer_node.py`에서 재사용한 패턴:
 
-- `/map` 구독 QoS (`RELIABLE` + `TRANSIENT_LOCAL`)
+- `/explore_map` 구독 QoS (`RELIABLE` + `TRANSIENT_LOCAL`)
 - `OccupancyGrid.data → np.array(..., dtype=np.int8).reshape((height, width))`
 - `scipy.ndimage.label` 기반 connected component
 - `tf2_ros.Buffer`/`TransformListener`로 `map → base_link` 위치 조회
@@ -120,7 +120,7 @@ taeyoung_coverage/
   (규칙 3: "Nav2 global planner에게 coverage path 생성을 맡기지 않는다").
   `FollowPath.Goal.path`에 우리가 만든 `nav_msgs/Path`를 그대로 넣고,
   `controller_id`는 기본값(빈 문자열 → nav2 params의 default controller)을 사용.
-- `/map` 콜백에서 `classify_map → compute_traversable_map → plan_coverage_path`를
+- `/explore_map` 콜백에서 `classify_map → compute_traversable_map → plan_coverage_path`를
   한 번 실행해 경로를 만들고(`auto_plan` 파라미터로 자동/수동 전환 가능),
   `/coverage_path`에 publish한 뒤 `send_to_nav2=True`이면 즉시 FollowPath 목표로
   전송한다.
@@ -174,7 +174,7 @@ ros2 run taeyoung_coverage taeyoung_coverage_node --ros-args \
 | `coverage_width` | 0.15 m | 한 번 지나가며 실제로 청소하는 폭 (visited 추적용) |
 | `min_interval_cells` | 2 | 이보다 짧은 free 구간은 무시 |
 | `min_region_cells` | 20 | 이보다 작은 영역은 무시 |
-| `auto_plan` | true | `/map` 수신 시 자동으로 1회 경로 계산 |
+| `auto_plan` | true | `/explore_map` 수신 시 자동으로 1회 경로 계산 |
 | `send_to_nav2` | true | 계산된 경로를 즉시 FollowPath로 전송할지 여부 |
 | `follow_path_action_name` | `follow_path` | Nav2 Controller Server의 action 이름 |
 

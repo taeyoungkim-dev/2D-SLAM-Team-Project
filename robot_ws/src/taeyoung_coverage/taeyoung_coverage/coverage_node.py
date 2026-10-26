@@ -1,11 +1,11 @@
-"""ROS2 노드: Cartographer의 /map을 받아 Coverage 경로를 만들고 Nav2에 전달.
+"""ROS2 노드: /explore_map을 받아 Coverage 경로를 만들고 Nav2에 전달.
 
 ROS2 관련 작업(구독/TF/파라미터/Action 호출)만 여기서 담당한다. 실제 커버리지
 알고리즘은 전부 :mod:`coverage_planner` / :mod:`map_utils` 에 있다
 (README_coverage.md 9장 - 역할 분리).
 
 데이터 흐름:
-    /map (OccupancyGrid)
+    /explore_map (OccupancyGrid)
         -> map_utils.classify_map / compute_traversable_map
         -> coverage_planner.plan_coverage_path
         -> nav_msgs/Path 로 변환해 /coverage_path 로 publish
@@ -82,7 +82,7 @@ class TaeyoungCoverage(Node):
         )
 
         # ------------------------------------------------------------------
-        # /map 구독 (explorer_node.py와 동일한 QoS - Cartographer가 늦게 켜져도
+        # /explore_map 구독 (explorer_node.py와 동일한 QoS - Cartographer가 늦게 켜져도
         # 마지막 지도를 다시 받기 위해 TRANSIENT_LOCAL 사용)
         # ------------------------------------------------------------------
         map_qos = QoSProfile(
@@ -90,7 +90,7 @@ class TaeyoungCoverage(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
-        self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, map_qos)
+        self.map_sub = self.create_subscription(OccupancyGrid, '/explore_map', self.map_callback, map_qos)
 
         # ------------------------------------------------------------------
         # 결과/디버그 publisher
@@ -125,7 +125,7 @@ class TaeyoungCoverage(Node):
         self.tracker_timer = self.create_timer(tracker_period, self.tracker_timer_callback)
 
     # ----------------------------------------------------------------------
-    # /map 콜백
+    # /explore_map 콜백
     # ----------------------------------------------------------------------
     def map_callback(self, msg: OccupancyGrid) -> None:
         meta = MapMeta(
