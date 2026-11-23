@@ -78,10 +78,16 @@ python3 server/scripts/ros2_bridge_node.py --ros-args \
 | `use_sim_time` | `false` | Gazebo 시뮬레이션이면 `true` |
 | `map_topic` | `/explore_map` | 지도 PNG 와 좌표 기준 frame 으로 쓰는 topic |
 | `dock_x`, `dock_y`, `dock_yaw` | 시작 위치 | `return_to_dock` 목표. 생략하면 TF 첫 위치 |
-| `cleaner_script`, `cleaner_args` | `robot_ws/scripts/coverage_cleaner.py`, 루트 `README.md` 의 옵션 | 앱의 **청소 시작**을 눌렀을 때 실행할 스크립트와 `-p` 옵션 |
+| `cleaner_script`, `cleaner_args` | `robot_ws/scripts/coverage_cleaner/coverage_cleaner.py`, 루트 `README.md` 의 옵션 | 앱의 **청소 시작**을 눌렀을 때 실행할 스크립트와 `-p` 옵션 |
+
+**중지/복귀 버튼** (`return_to_dock`, `emergency_stop`): 브릿지가 ROS topic `/return_home` (`std_msgs/Bool`)에 `true`를
+발행합니다. `coverage_cleaner`가 이를 받아 청소를 멈추고 도크 위치/yaw로 돌아오며, 앱에는 `RETURNING` -> 도착 후 `IDLE`로
+표시됩니다. 브릿지는 도크 위치를 `/home_pose`(`PoseStamped`)로 cleaner에 알려 줍니다. `coverage_cleaner`가 떠 있지 않으면
+예전처럼 Nav2 `NavigateToPose`로 직접 복귀합니다(yaw 보정 없음). 토픽 이름은 `return_home_topic`, `home_pose_topic` 파라미터입니다.
+`stop` 명령은 복귀하지 않고 일시정지만 합니다(진행 중인 복귀도 중단).
 
 **청소 시작 버튼**: 앱에서 누르면 브릿지가 저장소 최상위(`2D-SLAM-Team-Project/`)에서
-`python3 ./robot_ws/scripts/coverage_cleaner.py --ros-args -p use_sim_time:=<브릿지 값> -p tf_timeout_sec:=1.5 ...`
+`python3 ./robot_ws/scripts/coverage_cleaner/coverage_cleaner.py --ros-args -p use_sim_time:=<브릿지 값> -p tf_timeout_sec:=1.5 ...`
 를 실행합니다(`use_sim_time` 은 브릿지에 준 값을 따라갑니다). 이미 `coverage_cleaner` 노드가 떠 있으면
 새로 실행하지 않고 `resume` 만 호출하며, 브릿지를 종료하면 브릿지가 실행한 청소 노드도 함께 종료됩니다.
 앱이 아니라 로봇/호스트 PC 쪽 브릿지가 실행하므로 `scipy` 등 청소 노드 의존성이 그 PC 에 설치되어 있어야 합니다.

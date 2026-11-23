@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../core/app_config.dart';
 import '../state/robot_controller.dart';
+import '../theme/cupertino_style.dart';
 
 /// Local Backend Server(FastAPI)의 IP/포트를 설정하는 화면.
 ///
@@ -41,8 +42,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final port = int.tryParse(_portController.text.trim()) ?? config.port;
     await config.update(host: _hostController.text.trim(), port: port);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('서버 설정을 저장했습니다.')),
+      showAppSnackBar(
+        context,
+        child: const GlassPanel(
+          dark: true,
+          radius: 20,
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Icon(CupertinoIcons.checkmark_circle, size: 20, color: Colors.white),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '서버 설정을 저장했습니다.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
   }
@@ -63,58 +85,109 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('서버 설정')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Local Backend Server(FastAPI)가 실행 중인 PC의 로컬 IP와 포트를 '
-              '입력하세요. (예: 192.168.0.10 / 8000)',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _hostController,
-              decoration: const InputDecoration(
-                labelText: '서버 IP',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _portController,
-              decoration: const InputDecoration(
-                labelText: '포트',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 24),
-            FilledButton(onPressed: _save, child: const Text('저장')),
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: _testing ? null : _testConnection,
-              child: _testing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('연결 테스트'),
-            ),
-            if (_testResult != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  _testResult!,
-                  style: TextStyle(
-                    color: _testResult == '연결 성공' ? Colors.green : Colors.red,
-                  ),
+      extendBodyBehindAppBar: true,
+      appBar: const AppTopBar(title: '서버 설정'),
+      body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          MediaQuery.paddingOf(context).top + 16,
+          16,
+          MediaQuery.paddingOf(context).bottom + 24,
+        ),
+        child: SpringEntrance(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AppCard(
+                radius: 26,
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Local Backend Server(FastAPI)가 실행 중인 PC의 로컬 IP와 포트를 '
+                      '입력하세요. (예: 192.168.0.10 / 8000)',
+                      style: AppText.callout,
+                    ),
+                    const SizedBox(height: 16),
+                    _SettingsField(
+                      controller: _hostController,
+                      label: '서버 IP',
+                    ),
+                    const SizedBox(height: 12),
+                    _SettingsField(
+                      controller: _portController,
+                      label: '포트',
+                    ),
+                  ],
                 ),
               ),
-          ],
+              const SizedBox(height: 20),
+              AppButton(label: '저장', onPressed: _save),
+              const SizedBox(height: 10),
+              AppButton(
+                variant: AppButtonVariant.outlined,
+                label: '연결 테스트',
+                loading: _testing,
+                onPressed: _testing ? null : _testConnection,
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: AnimatedSwitcher(
+                  duration: AppSprings.bouncy.duration,
+                  transitionBuilder: springSwitcherTransition,
+                  child: _testResult == null
+                      ? const SizedBox(width: double.infinity)
+                      : Padding(
+                          key: ValueKey(_testResult),
+                          padding: const EdgeInsets.only(top: 14),
+                          child: Center(
+                            child: AppChip(
+                              icon: _testResult == '연결 성공'
+                                  ? CupertinoIcons.checkmark_circle
+                                  : CupertinoIcons.exclamationmark_circle,
+                              label: _testResult!,
+                              inverted: _testResult == '연결 성공',
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Squircle 배경의 라벨 텍스트 필드.
+class _SettingsField extends StatelessWidget {
+  const _SettingsField({required this.controller, required this.label});
+
+  final TextEditingController controller;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: AppColors.background,
+        shape: squircle(16),
+      ),
+      child: TextField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        style: AppText.body,
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: AppText.callout,
+          border: InputBorder.none,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
       ),
     );

@@ -140,6 +140,27 @@ ros2 run taeyoung_explorer explorer_node
 ```zsh
 ros2 run turtlebot3_teleop teleop_keyboard
 ```
+
+### [선택] 강제 홈 복귀 스위치 (`/return_home`)
+`coverage_cleaner`는 `/return_home` (`std_msgs/Bool`)에 `true`가 오면 청소를 멈추고 **시작 위치와 yaw**(오차 안)로 돌아옵니다.
+스위치가 켜지는 경우는 두 가지이며 둘 다 같은 topic을 씁니다.
+
+1. 청소 완료(`complete_pass` / `complete_reachable`): `coverage_cleaner`가 직접 `true`를 발행 (`return_home_on_complete:=false`로 끌 수 있음)
+2. 앱의 중지/복귀 버튼: 서버 `return_to_dock` 명령 -> `ros2_bridge_node.py`가 `true`를 발행
+
+```zsh
+# 수동으로 켜기 / 복귀 중단(false: 복귀 중이면 중단 후 일시정지, 재개는 ~/resume)
+# 스위치는 "복귀 진행 중"을 뜻하며, 복귀 완료/최종 실패/~/pause·~/resume 시 cleaner가 스스로 false로 내립니다.
+ros2 topic pub --once /return_home std_msgs/msg/Bool '{data: true}'
+ros2 topic pub --once /return_home std_msgs/msg/Bool '{data: false}'
+
+# 진행 확인: state 가 returning_home -> returned_home (실패 시 return_failed)
+ros2 topic echo /coverage_status --field data
+```
+- 홈 위치 우선순위: `-p home_x:=0.0 -p home_y:=0.0 -p home_yaw:=0.0`(실수로 입력) > `/home_pose`(브릿지가 도크 위치 발행) > cleaner가 처음 받은 TF 위치
+- 완료 기준(실측 TF): `home_xy_tolerance`(기본 0.1m), `home_yaw_tolerance`(기본 0.4rad). `NavigateToPose`로 이동한 뒤 yaw가 어긋나면 Nav2 `/spin`으로 보정합니다.
+- Terminal 4의 Nav2(`bt_navigator`, `behavior_server`)가 떠 있어야 합니다. `~/pause`, `~/resume`, `~/reset`은 복귀 중에도 우선합니다.
+
 ## 💾 3. Save the Map (지도 저장하기)
 
 맵 스캔이 충분히 완료되었다면, 새로운 터미널을 열고 생성된 지도를 저장합니다. (`map`이라는 이름의 `.yaml`과 `.pgm` 파일이 생성됩니다.)
@@ -212,20 +233,24 @@ ros2 launch ./assets/objects/spawn_rgb_balls.launch.py
 
 ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=true
 
-ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger_rpp.yaml
+ros2 launch nav2_bringup navigation_launch.py use_sim_time:=true params_file:=./custom_burger_cam_rpp.yaml
 
 ros2 launch turtlebot3_navigation2 navigation2.launch.py \
   use_sim_time:=true \
   map:=./maps/world_map.yaml \
-  params_file:=./custom_burger_rpp.yaml
+  params_file:=./custom_burger_cam_rpp.yaml
 ```
 
 ros2 run turtlebot3_teleop teleop_keyboard
 
 python3 ./robot_ws/scripts/map_threshold_node.py
 
-python3 ./robot_ws/scripts/coverage_cleaner.py
+# 기능 on/off · 임계값 · 토픽 이름의 기본값은 robot_ws/scripts/coverage_cleaner/parameters/
+# (feature_flags.py, thresholds.py, node_settings.py) 에서 수정하거나 --ros-args -p 로 덮어쓴다.
+python3 ./robot_ws/scripts/coverage_cleaner/coverage_cleaner.py
 
+cd ~/2D-SLAM-Team-Project/robot_ws
+source install/setup.zsh
 ros2 launch explore_lite explore.launch.py
 
 ros2 run nav2_map_server map_saver_cli -f ./map
@@ -242,19 +267,19 @@ ros2 bag info nav2_debug
 python3 analyze_nav2_bag.py nav2_debug
 
 
-python3 ./robot_ws/scripts/coverage_cleaner.py --ros-args \
+python3 ./robot_ws/scripts/coverage_cleaner/coverage_cleaner.py --ros-args \
   -p use_sim_time:=true \
   -p send_to_nav2:=false \
   -p tf_timeout_sec:=1.5 \
   -p tracker_max_gap_sec:=1.5
 
 
-python3 ./robot_ws/scripts/coverage_cleaner.py --ros-args \
+python3 ./robot_ws/scripts/coverage_cleaner/coverage_cleaner.py --ros-args \
   -p use_sim_time:=true \
   -p tf_timeout_sec:=1.5 \
   -p tracker_max_gap_sec:=1.5
 
-python3 ./robot_ws/scripts/coverage_cleaner.py --ros-args \
+python3 ./robot_ws/scripts/coverage_cleaner/coverage_cleaner.py --ros-args \
   -p use_sim_time:=true \
   -p tf_timeout_sec:=1.5 \
   -p tracker_max_gap_sec:=1.5 \

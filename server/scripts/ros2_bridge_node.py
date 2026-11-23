@@ -6,8 +6,12 @@
 WebSocket으로 내려보내는 명령(stop / return_to_dock / ...)은 ROS2 서비스와
 Nav2 Action으로 바꿔 실행한다.
 
+ROS2 topic 으로 나가는 신호
+    /return_home (std_msgs/Bool)     return_to_dock(앱의 중지/복귀 버튼) 명령 -> True
+    /home_pose (PoseStamped)         도크 위치. coverage_cleaner 가 복귀 목표로 쓴다(transient-local).
+
 ROS2 -> 서버
-    TF  map -> base_footprint        -> telemetry.current_position / swept_path
+    TF  map -> base_footprint        -> telemetry.current_position
     /coverage_status (String JSON)   -> telemetry.current_state (FSM 매핑)
     /battery_state (BatteryState)    -> telemetry.battery_level
         위 셋을 합쳐 ``ws://<server>/ws/robot`` 으로 telemetry 전송 (기본 2Hz)
@@ -16,7 +20,7 @@ ROS2 -> 서버
     /coverage_visited_map            -> 위 PNG 위에 청소 완료 영역을 초록색으로 덧칠
 
 좌표 기준
-    모든 좌표(위치, 궤적, 장애물, 목표)는 /explore_map 의 header.frame_id 좌표계 기준이다.
+    모든 좌표(위치, 장애물, 목표)는 /explore_map 의 header.frame_id 좌표계 기준이다.
     /explore_map 은 map_threshold_node.py 가 /map 의 header/info 를 그대로 복사하고 값만
     -1/0/100으로 이진화한 지도라서 /map 과 격자 기하(frame, 원점, 해상도, 크기)가 같다.
     시작 위치(start_pose)는 TF가 처음 잡힌 위치(또는 dock_x/dock_y 파라미터)이며, 앱이 이
@@ -27,7 +31,9 @@ ROS2 -> 서버
     start_cleaning   -> coverage_cleaner 가 없으면 저장소 최상위에서 프로세스로 실행하고,
                         이미 떠 있으면 <cleaner>/resume (Trigger)
     start_mapping    -> 상태만 MAPPING으로 표시 (탐색 노드는 별도 실행)
-    return_to_dock   -> pause + Nav2 NavigateToPose(dock)   [RETURNING]
+    return_to_dock   -> /return_home (std_msgs/Bool) 에 True 발행 [RETURNING]
+                        coverage_cleaner 가 청소를 멈추고 도크 위치/yaw 로 돌아온다.
+                        (cleaner 가 없으면 예전처럼 pause + Nav2 NavigateToPose(dock))
     target_reclean   -> pause + Nav2 NavigateToPose(target) [TARGET_RECLEANING]
 
 아직 포함되지 않은 것
@@ -70,7 +76,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -81,6 +87,8 @@ _IDLE_CLEANER_STATES = {
     "blocked",
     "complete_pass",
     "complete_reachable",
+    "returned_home",
+    "return_failed",
 }
 _OCCUPIED_THRESHOLD = 65
 
@@ -198,16 +206,16 @@ class ServerBridgeNode(Node):
         self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("telemetry_rate_hz", 2.0)
         self.declare_parameter("map_upload_period_sec", 5.0)
-        self.declare_parameter("path_min_step_m", 0.05)
-        self.declare_parameter("path_max_points", 500)
         self.declare_parameter("cleaner_node", "/coverage_cleaner")
         self.declare_parameter("nav_action_name", "navigate_to_pose")
+        self.declare_parameter("return_home_topic", "/return_home")
+        self.declare_parameter("home_pose_topic", "/home_pose")
         # NaN이면 TF가 처음 잡힌 위치(=시작 위치)를 도크로 사용한다.
         self.declare_parameter("dock_x", float("nan"))
         self.declare_parameter("dock_y", float("nan"))
         self.declare_parameter("dock_yaw", 0.0)
         # '청소 시작' 시 실행할 coverage_cleaner (저장소 최상위 기준 경로)
-        self.declare_parameter("cleaner_script", "robot_ws/scripts/coverage_cleaner.py")
+        self.declare_parameter("cleaner_script", "robot_ws/scripts/coverage_cleaner/coverage_cleaner.py")
         self.declare_parameter("cleaner_args", DEFAULT_CLEANER_ARGS)
 
         p = self.get_parameter
@@ -217,8 +225,6 @@ class ServerBridgeNode(Node):
         self.base_frame = str(p("base_frame").value)
         self.telemetry_period = 1.0 / max(0.1, float(p("telemetry_rate_hz").value))
         self.map_upload_period = float(p("map_upload_period_sec").value)
-        self.path_min_step = float(p("path_min_step_m").value)
-        self.path_max_points = int(p("path_max_points").value)
         cleaner = str(p("cleaner_node").value).rstrip("/")
         self.cleaner_node = cleaner
         self.cleaner_script = str(p("cleaner_script").value)
@@ -232,10 +238,12 @@ class ServerBridgeNode(Node):
         # ROS 스레드와 서버 통신 스레드가 함께 쓰는 상태
         self._lock = threading.Lock()
         self._pose: Optional[tuple[float, float, float]] = None
-        self._swept_path: list[tuple[float, float]] = []
         self._cleaner_state = "waiting_for_map"
         self._battery = 100
         self._state_override: Optional[str] = None  # 명령으로 강제된 FSM 상태
+        # return_to_dock 직후 cleaner 가 returning_home 을 보고하기 전까지 RETURNING 으로 보이게 하는 기한(monotonic)
+        self._return_wait_until = 0.0
+        self._home_published = False
         self._map_msg: Optional[OccupancyGrid] = None
         self._visited_msg: Optional[OccupancyGrid] = None
         self._map_dirty = False
@@ -263,6 +271,13 @@ class ServerBridgeNode(Node):
         self.pause_client = self.create_client(Trigger, f"{cleaner}/pause")
         self.resume_client = self.create_client(Trigger, f"{cleaner}/resume")
         self.nav_client = ActionClient(self, NavigateToPose, str(p("nav_action_name").value))
+        # 복귀 스위치는 volatile: 예전 True 가 나중에 뜬 노드를 바로 복귀시키지 않게 한다.
+        self.return_home_pub = self.create_publisher(
+            Bool,
+            str(p("return_home_topic").value),
+            QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE),
+        )
+        self.home_pose_pub = self.create_publisher(PoseStamped, str(p("home_pose_topic").value), retained)
         self._nav_goal_handle = None
         self.create_timer(0.1, self._process_commands)
 
@@ -278,12 +293,12 @@ class ServerBridgeNode(Node):
         with self._lock:
             frame = msg.header.frame_id or self.map_frame
             if frame != self.map_frame:
-                # 좌표 기준은 /explore_map 의 frame 이다. 바뀌면 지금까지의 궤적/시작 위치는 무효.
+                # 좌표 기준은 /explore_map 의 frame 이다. 바뀌면 지금까지의 시작 위치는 무효.
                 self.get_logger().info(f"좌표 기준 frame을 '{self.map_frame}' -> '{frame}' 로 변경 (/explore_map header)")
                 self.map_frame = frame
-                self._swept_path.clear()
                 if self._dock_auto:
                     self.dock[0] = self.dock[1] = float("nan")
+                self._home_published = False
             if abs(origin_yaw) > 1e-3 and not self._warned_origin_yaw:
                 self._warned_origin_yaw = True
                 self.get_logger().warn("지도 원점에 회전이 있음: 앱 좌표 변환은 회전 없는 지도만 지원한다")
@@ -302,6 +317,8 @@ class ServerBridgeNode(Node):
             return
         with self._lock:
             self._cleaner_state = state
+            if state == "returning_home":
+                self._return_wait_until = 0.0  # 이제부터는 cleaner 상태를 그대로 따른다.
 
     def _on_battery(self, msg: BatteryState) -> None:
         pct = msg.percentage
@@ -323,17 +340,25 @@ class ServerBridgeNode(Node):
             if math.isnan(self.dock[0]) or math.isnan(self.dock[1]):
                 self.dock[0], self.dock[1], self.dock[2] = t.x, t.y, yaw
                 self.get_logger().info(f"도크 위치를 시작 위치로 설정: ({t.x:.2f}, {t.y:.2f})")
-            last = self._swept_path[-1] if self._swept_path else None
-            if last is None or math.hypot(t.x - last[0], t.y - last[1]) >= self.path_min_step:
-                self._swept_path.append((t.x, t.y))
-                if len(self._swept_path) > self.path_max_points:
-                    # 오래된 구간은 절반으로 솎아내 전체 모양을 유지하면서 길이를 제한한다.
-                    self._swept_path = self._swept_path[::2]
+            self._publish_home_locked()
+
+    def _publish_home_locked(self) -> None:
+        """도크 위치를 /home_pose 로 알린다(coverage_cleaner 의 복귀 목표). 한 번만 발행한다."""
+        if self._home_published or math.isnan(self.dock[0]) or math.isnan(self.dock[1]):
+            return
+        msg = PoseStamped()
+        msg.header.frame_id = self.map_frame
+        msg.pose.position.x, msg.pose.position.y = self.dock[0], self.dock[1]
+        msg.pose.orientation.z, msg.pose.orientation.w = math.sin(self.dock[2] / 2.0), math.cos(self.dock[2] / 2.0)
+        self.home_pose_pub.publish(msg)
+        self._home_published = True
 
     # ------------------------------------------------- 서버 통신 스레드용 API
     def _fsm_state(self) -> str:
         if self._state_override is not None:
             return self._state_override
+        if time.monotonic() < self._return_wait_until or self._cleaner_state == "returning_home":
+            return "RETURNING"
         return "IDLE" if self._cleaner_state in _IDLE_CLEANER_STATES else "CLEANING"
 
     def snapshot_telemetry(self) -> Optional[dict]:
@@ -346,7 +371,6 @@ class ServerBridgeNode(Node):
                 "type": "telemetry",
                 "current_state": self._fsm_state(),
                 "current_position": {"x": x, "y": y, "theta": theta},
-                "swept_path": [{"x": px, "y": py} for px, py in self._swept_path],
                 "battery_level": self._battery,
             }
 
@@ -364,6 +388,7 @@ class ServerBridgeNode(Node):
     def _set_override(self, state: Optional[str]) -> None:
         with self._lock:
             self._state_override = state
+            self._return_wait_until = 0.0
 
     def _call_trigger(self, client, label: str) -> None:
         if not client.service_is_ready():
@@ -411,10 +436,27 @@ class ServerBridgeNode(Node):
 
         self.nav_client.send_goal_async(goal).add_done_callback(on_goal)
 
+    def _cleaner_running(self) -> bool:
+        node_name = self.cleaner_node.rsplit("/", 1)[-1]
+        return self.resume_client.service_is_ready() or node_name in self.get_node_names()
+
+    def _return_home(self) -> None:
+        """coverage_cleaner 에 복귀 스위치(/return_home)를 켠다. cleaner 가 없으면 Nav2 로 직접 복귀."""
+        self._cancel_nav()
+        if self._cleaner_running():
+            self._set_override(None)  # 이전 stop 의 IDLE 고정을 풀고 cleaner 상태를 따른다.
+            with self._lock:
+                self._return_wait_until = time.monotonic() + 5.0
+            self.return_home_pub.publish(Bool(data=True))
+            self.get_logger().info("복귀 스위치 ON: /return_home <- True")
+            return
+        self.get_logger().warn("coverage_cleaner 가 없어 Nav2 NavigateToPose 로 직접 복귀 (yaw 보정 없음)")
+        self._set_override("RETURNING")
+        self._send_nav_goal(self.dock[0], self.dock[1], self.dock[2], on_success_state="IDLE")
+
     def _start_cleaning(self) -> None:
         """coverage_cleaner 가 떠 있으면 resume, 없으면 저장소 최상위에서 실행한다."""
-        node_name = self.cleaner_node.rsplit("/", 1)[-1]
-        if self.resume_client.service_is_ready() or node_name in self.get_node_names():
+        if self._cleaner_running():
             self._call_trigger(self.resume_client, "resume")  # 이미 실행 중(직접 켠 경우 포함)
             return
         if self._cleaner_proc is not None and self._cleaner_proc.poll() is None:
@@ -486,10 +528,7 @@ class ServerBridgeNode(Node):
                 self._set_override("MAPPING")
                 self.get_logger().info("MAPPING 상태로 표시만 함 (탐색 노드는 별도 실행 필요)")
             elif command == "return_to_dock":
-                self._cancel_nav()
-                self._call_trigger(self.pause_client, "pause")
-                self._set_override("RETURNING")
-                self._send_nav_goal(self.dock[0], self.dock[1], self.dock[2], on_success_state="IDLE")
+                self._return_home()
             elif command == "target_reclean":
                 if "x" not in target or "y" not in target:
                     self.get_logger().warn("target_reclean 에 target 좌표가 없음")
