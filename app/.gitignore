@@ -10,9 +10,9 @@ build/
 *.iws
 .idea/
 
-# Flutter가 flutter create 시 생성하는 플랫폼 디렉터리는 로컬에서 생성하여 사용합니다.
-# (팀원마다 다른 SDK/도구 버전으로 생성된 산출물을 커밋하지 않기 위함)
-android/
+# android/ 는 커밋한다: AndroidManifest.xml 에 INTERNET 권한과 usesCleartextTraffic(http/ws 로컬 서버 통신)을
+# 직접 넣었기 때문에, 다시 생성하면 앱이 서버에 연결하지 못한다. (local.properties, .gradle 등 로컬 산출물은
+# android/.gitignore 가 제외한다.) 나머지 플랫폼 러너는 필요할 때 flutter create 로 로컬에서 생성한다.
 ios/
 linux/
 macos/

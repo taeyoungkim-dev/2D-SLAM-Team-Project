@@ -12,6 +12,13 @@ class CleanerState:
         # --- 지도 ---
         self.meta = self.info = self.free = self.safe = self.target = self.tracker = None
         self.plan_safe = None
+        # --- 장애물 구역 (map 격자 크기의 bool mask 이거나 None) ---
+        self.map_free = None        # 장애물 구역을 빼기 전의 free
+        self.zone = None            # 구역 자체(중심에서 class 반지름 안)
+        self.zone_stop = None       # 구역 때문에 정지 안전 영역에서 빠진 셀(로봇이 들어가면 안 되는 곳)
+        self.zone_cut = None        # 구역 때문에 계획 영역에서 빠진 셀(여기서 시작하면 먼저 빠져나온다)
+        self.escape_legs = set()    # 구역 안에서 빠져나오는 구간들(일반 구간 검사를 완화한다)
+        self.active_escape = False
         self.map_version = 0
         # --- FSM / 제어 ---
         self.enabled = bool(params.auto_plan)

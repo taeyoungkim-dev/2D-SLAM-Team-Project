@@ -22,6 +22,10 @@
 알고리즘 자체 검사: python3 coverage_cleaner.py --self-test (ROS 불필요).
 TF 진단: 실패 사유별로 측정값/기준값과 Nav2 취소 요청 이유를 출력한다.
   tf_timeout_sec는 TF age 허용값, tracker_max_gap_sec는 관측 간격 허용값이다.
+장애물 회피: assets/objects/spawn_household_obstacles.launch.py 의 스폰 위치(odom=world -> map TF 변환)에
+  SDF 형상 기반 반지름의 원을 "청소 불가 구역"으로 만들어(/coverage_obstacle_zone_map) free 에서 뺀다. 활성 경로가 구역에
+  걸리면 멈추고 구역을 뺀 경로로 다시 계획하며, 구역 안에 있으면 먼저 빠져나온다.
+  홈 복귀는 구역이 있으면 구역을 뺀 자체 A* 경로를 FollowPath 로 따라간다(없으면 NavigateToPose).
 의존성: numpy, scipy; 실행 시 rclpy, tf2_ros, nav2_msgs, nav_msgs,
         geometry_msgs, action_msgs, std_msgs, std_srvs, rcl_interfaces.
 

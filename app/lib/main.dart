@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'core/app_config.dart';
 import 'screens/home_screen.dart';
 import 'state/robot_controller.dart';
-import 'theme/cupertino_style.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,8 +32,10 @@ class RobotVacuumApp extends StatelessWidget {
       child: MaterialApp(
         title: '로봇청소기 플랫폼',
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.light(),
-        scrollBehavior: const CupertinoScrollBehavior(),
+        theme: ThemeData(
+          colorSchemeSeed: Colors.teal,
+          useMaterial3: true,
+        ),
         home: const HomeScreen(),
       ),
     );

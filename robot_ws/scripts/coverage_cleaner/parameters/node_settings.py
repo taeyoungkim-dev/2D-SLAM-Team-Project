@@ -4,7 +4,12 @@
 출력 토픽 이름을 모았다. 파라미터는 `--ros-args -p 이름:=값` 으로 덮어쓸 수 있다.
 """
 
+from pathlib import Path
+
 NODE_NAME = 'coverage_cleaner'
+
+# parameters/ -> coverage_cleaner/ -> scripts/ -> robot_ws/ -> 저장소 루트
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 NODE_SETTING_DEFAULTS = dict(
     map_topic='/explore_map',
@@ -25,10 +30,17 @@ NODE_SETTING_DEFAULTS = dict(
     home_x=float('nan'),
     home_y=float('nan'),
     home_yaw=0.0,
+    # --- 장애물 회피 ---
+    # Gazebo 스폰 launch 파일. 여기 적힌 장애물 위치(world 좌표)를 청소 불가 구역의 중심으로 쓴다.
+    obstacle_spawn_file=str(_REPO_ROOT / 'assets' / 'objects' / 'spawn_household_obstacles.launch.py'),
+    # 스폰 좌표가 속한 frame. diff drive 가 odometry_source=WORLD 라 odom == Gazebo world 이다.
+    obstacle_frame='odom',
 )
 
 # 출력 토픽
 COVERAGE_PATH_TOPIC = '/coverage_path'
 COVERAGE_ACTIVE_PATH_TOPIC = '/coverage_active_path'
 COVERAGE_STATUS_TOPIC = '/coverage_status'
-DEBUG_MAP_KEYS = ('visited', 'remaining', 'target', 'unreachable')   # /coverage_<key>_map
+# /coverage_<key>_map. obstacle_zone(=/coverage_obstacle_zone_map)은 장애물 때문에 청소할 수 없는
+# 구역(맵 기준, 100=구역)이며 zone 이 바뀌면 즉시 발행된다.
+DEBUG_MAP_KEYS = ('visited', 'remaining', 'target', 'unreachable', 'obstacle_zone')

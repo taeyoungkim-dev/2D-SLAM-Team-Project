@@ -24,6 +24,10 @@ def log_startup(logger, params):
         f'yaw_tolerance={p.home_yaw_tolerance:.3f}rad; '
         f'nav={p.navigate_action_name}; spin={p.spin_action_name}')
     logger.info(
+        f'Obstacle avoidance={p.obstacle_avoidance}; spawn_file={p.obstacle_spawn_file}; '
+        f'frame={p.obstacle_frame}; '
+        'zone map=/coverage_obstacle_zone_map')
+    logger.info(
         f'Clearance: stop={p.coverage_clearance:.3f}m; '
         f'planning={p.coverage_clearance + p.planning_extra_margin:.3f}m '
         f'(extra={p.planning_extra_margin:.3f}m); '

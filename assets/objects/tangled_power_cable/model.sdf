@@ -1,4 +1,3 @@
-<?xml version='1.0' encoding='utf-8'?>
 <sdf version="1.6">
   <model name="power_cable">
     <static>true</static>
@@ -23,10 +22,10 @@
         </geometry>
       </collision>
       <visual name="usb_a_strain_relief">
-        <pose>-0.3118459 -0.1507699 0.0066 0 0 -2.746444</pose>
+        <pose>-0.06918792 -0.05354526 0.003060475 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.011 0.014 0.013</size>
+            <size>0.005100791 0.006491916 0.006028208</size>
           </box>
         </geometry>
         <material>
@@ -36,18 +35,18 @@
         </material>
       </visual>
       <collision name="usb_a_strain_relief">
-        <pose>-0.3118459 -0.1507699 0.0066 0 0 -2.746444</pose>
+        <pose>-0.06918792 -0.05354526 0.003060475 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.011 0.014 0.013</size>
+            <size>0.005100791 0.006491916 0.006028208</size>
           </box>
         </geometry>
       </collision>
       <visual name="usb_a_housing">
-        <pose>-0.332612 -0.1594312 0.0067 0 0 -2.746444</pose>
+        <pose>-0.06504432 -0.0631206 0.003106846 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.035 0.023 0.013</size>
+            <size>0.01622979 0.01066529 0.006028208</size>
           </box>
         </geometry>
         <material>
@@ -57,18 +56,18 @@
         </material>
       </visual>
       <collision name="usb_a_housing">
-        <pose>-0.332612 -0.1594312 0.0067 0 0 -2.746444</pose>
+        <pose>-0.06504432 -0.0631206 0.003106846 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.035 0.023 0.013</size>
+            <size>0.01622979 0.01066529 0.006028208</size>
           </box>
         </geometry>
       </collision>
       <visual name="usb_a_tip">
-        <pose>-0.3529167 -0.1679 0.0065 0 0 -2.746444</pose>
+        <pose>-0.06099279 -0.07248316 0.003014104 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.01 0.013 0.0052</size>
+            <size>0.004637083 0.006028208 0.002411283</size>
           </box>
         </geometry>
         <material>
@@ -78,18 +77,18 @@
         </material>
       </visual>
       <collision name="usb_a_tip">
-        <pose>-0.3529167 -0.1679 0.0065 0 0 -2.746444</pose>
+        <pose>-0.06099279 -0.07248316 0.003014104 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.01 0.013 0.0052</size>
+            <size>0.004637083 0.006028208 0.002411283</size>
           </box>
         </geometry>
       </collision>
       <visual name="usb_a_rib_0">
-        <pose>-0.3090771 -0.1496151 0.0068 0 0 -2.746444</pose>
+        <pose>-0.0697404 -0.05226855 0.003153216 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.0012 0.0148 0.0135</size>
+            <size>0.0005564499 0.006862883 0.006260062</size>
           </box>
         </geometry>
         <material>
@@ -99,10 +98,10 @@
         </material>
       </visual>
       <visual name="usb_a_rib_1">
-        <pose>-0.3127688 -0.1511548 0.0068 0 0 -2.746444</pose>
+        <pose>-0.06900377 -0.05397084 0.003153216 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.0012 0.0148 0.0135</size>
+            <size>0.0005564499 0.006862883 0.006260062</size>
           </box>
         </geometry>
         <material>
@@ -112,10 +111,10 @@
         </material>
       </visual>
       <visual name="usb_a_rib_2">
-        <pose>-0.3155376 -0.1523097 0.0068 0 0 -2.746444</pose>
+        <pose>-0.06845128 -0.05524754 0.003153216 0 0 -1.162391</pose>
         <geometry>
           <box>
-            <size>0.0012 0.0148 0.0135</size>
+            <size>0.0005564499 0.006862883 0.006260062</size>
           </box>
         </geometry>
         <material>
@@ -125,10 +124,10 @@
         </material>
       </visual>
       <visual name="usb_c_strain_relief">
-        <pose>0.3511641 0.1483737 0.0066 0 0 -0.9495669</pose>
+        <pose>0.07982361 0.05414183 0.003060475 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.011 0.014 0.013</size>
+            <size>0.005100791 0.006491916 0.006028208</size>
           </box>
         </geometry>
         <material>
@@ -138,18 +137,18 @@
         </material>
       </visual>
       <collision name="usb_c_strain_relief">
-        <pose>0.3511641 0.1483737 0.0066 0 0 -0.9495669</pose>
+        <pose>0.07982361 0.05414183 0.003060475 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.011 0.014 0.013</size>
+            <size>0.005100791 0.006491916 0.006028208</size>
           </box>
         </geometry>
       </collision>
       <visual name="usb_c_housing">
-        <pose>0.3613497 0.1341433 0.0062 0 0 -0.9495669</pose>
+        <pose>0.08391196 0.04713206 0.002874991 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.025 0.014 0.012</size>
+            <size>0.01159271 0.006491916 0.005564499</size>
           </box>
         </geometry>
         <material>
@@ -159,18 +158,18 @@
         </material>
       </visual>
       <collision name="usb_c_housing">
-        <pose>0.3613497 0.1341433 0.0062 0 0 -0.9495669</pose>
+        <pose>0.08391196 0.04713206 0.002874991 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.025 0.014 0.012</size>
+            <size>0.01159271 0.006491916 0.005564499</size>
           </box>
         </geometry>
       </collision>
       <visual name="usb_c_tip">
-        <pose>0.3702257 0.1217426 0.006 0 0 -0.9495669</pose>
+        <pose>0.08747467 0.04102353 0.00278225 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.0065 0.0084 0.0032</size>
+            <size>0.003014104 0.00389515 0.001483867</size>
           </box>
         </geometry>
         <material>
@@ -180,18 +179,18 @@
         </material>
       </visual>
       <collision name="usb_c_tip">
-        <pose>0.3702257 0.1217426 0.006 0 0 -0.9495669</pose>
+        <pose>0.08747467 0.04102353 0.00278225 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.0065 0.0084 0.0032</size>
+            <size>0.003014104 0.00389515 0.001483867</size>
           </box>
         </geometry>
       </collision>
       <visual name="usb_c_rib_0">
-        <pose>0.349418 0.1508132 0.0068 0 0 -0.9495669</pose>
+        <pose>0.07912274 0.0553435 0.003153216 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.0012 0.0148 0.0135</size>
+            <size>0.0005564499 0.006862883 0.006260062</size>
           </box>
         </geometry>
         <material>
@@ -201,10 +200,10 @@
         </material>
       </visual>
       <visual name="usb_c_rib_1">
-        <pose>0.3517461 0.1475605 0.0068 0 0 -0.9495669</pose>
+        <pose>0.08005723 0.05374127 0.003153216 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.0012 0.0148 0.0135</size>
+            <size>0.0005564499 0.006862883 0.006260062</size>
           </box>
         </geometry>
         <material>
@@ -214,10 +213,10 @@
         </material>
       </visual>
       <visual name="usb_c_rib_2">
-        <pose>0.3534922 0.145121 0.0068 0 0 -0.9495669</pose>
+        <pose>0.08075809 0.05253959 0.003153216 0 0 -1.042795</pose>
         <geometry>
           <box>
-            <size>0.0012 0.0148 0.0135</size>
+            <size>0.0005564499 0.006862883 0.006260062</size>
           </box>
         </geometry>
         <material>

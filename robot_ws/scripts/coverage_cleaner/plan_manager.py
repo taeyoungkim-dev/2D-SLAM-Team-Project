@@ -12,7 +12,7 @@ from coverage_types import PlanningError, PlanningMarginError
 from leg_splitter import split_legs
 from line_safety import line_is_safe
 from path_message import build_path_message
-from path_search import astar
+from path_search import astar, simplify
 
 
 class PlanManager:
@@ -71,7 +71,19 @@ class PlanManager:
             ctx.warn('planning_start', str(exc))
             return False
         world = [s.meta.world(*px) for px in plan.pixels]
-        if not p.check_safe_position:
+        escape_part = None
+        if ctx.area.in_zone_cut(pose):
+            # 로봇이 장애물 구역 안에 있다: 구역을 무시한 안전 영역으로 계획 시작 셀까지 빠져나온다.
+            try:
+                connector = simplify(astar(s.safe, s.meta.pixel(*pose), plan.pixels[0],
+                                           p.max_astar_expansions))
+            except PlanningError as exc:
+                ctx.block(f'Cannot leave the obstacle zone: {exc}')
+                return False
+            middle = [s.meta.world(*px) for px in connector[1:-1]]
+            escape_part = [pose] + middle + [world[0]]
+            world = [pose] + middle + world
+        elif not p.check_safe_position:
             try:
                 connector = astar(s.free, s.meta.pixel(*pose), plan.pixels[0],
                                   p.max_astar_expansions)
@@ -90,6 +102,7 @@ class PlanManager:
             s.state = 'preview'
             return True
         s.legs = deque(split_legs(world, p.max_leg_length))
+        s.escape_legs = set(split_legs(escape_part, p.max_leg_length)) if escape_part else set()
         s.pass_in_progress = True
         s.pass_start_count = int(np.count_nonzero(s.target & s.tracker.visited))
         s.state = 'executing'

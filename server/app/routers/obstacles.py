@@ -13,12 +13,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 
 from .. import database
 from ..config import settings
@@ -36,6 +38,20 @@ from ..ws_manager import manager
 
 router = APIRouter(prefix="/api/obstacles", tags=["obstacles"])
 
+# 같은 class 보고가 동시에 들어와도 표시가 하나만 만들어지게 한다.
+_camera_report_lock = asyncio.Lock()
+
+
+class _NoLock:
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *exc) -> None:
+        return None
+
+
+_no_lock = _NoLock()
+
 
 def _row_to_obstacle_log(row: dict) -> ObstacleLog:
     return ObstacleLog(
@@ -49,33 +65,71 @@ def _row_to_obstacle_log(row: dict) -> ObstacleLog:
     )
 
 
+def _safe_name(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "_", text) or "obstacle"
+
+
 @router.post("", response_model=ObstacleLog)
 async def create_obstacle(
-    obstacle_id: str = Form(...),
+    response: Response,
     type: str = Form(...),  # noqa: A002 - AGENTS.md 스키마의 필드명을 그대로 사용
     x: float = Form(...),
     y: float = Form(...),
+    obstacle_id: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
 ) -> ObstacleLog:
-    """로봇 -> 서버: 장애물 감지 로그 등록 (이미지 멀티파트 업로드)."""
+    """로봇 -> 서버: 장애물 발견 등록 (class + 사진, 멀티파트).
+
+    ``obstacle_id`` 를 생략하면(카메라 발견 보고) 서버가 시간/class 로 id 를 만들고, 사진을
+    ``static/images/<YYYYmmdd_HHMMSS>_<class>.jpg`` 로 저장한다. 같은 class 가 이번 청소에서 이미 표시 중이면
+    새로 만들지 않고 기존 항목을 200 으로 돌려준다(발견한 장애물 당 표시 하나). 새로 만들면 201.
+    표시는 새 청소 시작(``start_cleaning``)에서만 내려간다(``database.deactivate_all_obstacles``).
+
+    ``obstacle_id`` 를 주면 예전 방식(해당 id 로 저장/갱신, FSM 을 EVADING 으로 전환)으로 동작한다.
+    """
 
     settings.ensure_directories()
+    camera_report = obstacle_id is None
 
-    if image is not None:
-        suffix = Path(image.filename or "").suffix or ".jpg"
-        dest_path = settings.IMAGES_DIR / f"{obstacle_id}{suffix}"
-        with dest_path.open("wb") as buffer:
-            shutil.copyfileobj(image.file, buffer)
-        image_url = f"{settings.PUBLIC_BASE_URL}/images/{dest_path.name}"
+    lock = _camera_report_lock if camera_report else _no_lock
+    async with lock:
+        if camera_report:
+            existing = await database.find_active_obstacle_by_type(type)
+            if existing is not None:
+                return _row_to_obstacle_log(existing)
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            file_stem = f"{stamp}_{_safe_name(type)}"
+            # 같은 초에 같은 class 가 다시 만들어져도(예: 청소 시작 직후) 이전 기록/사진을 덮어쓰지 않는다.
+            unique, n = file_stem, 1
+            while (await database.get_obstacle(f"obs_{unique}") is not None
+                   or any(settings.IMAGES_DIR.glob(f"{unique}.*"))):
+                n += 1
+                unique = f"{file_stem}_{n}"
+            file_stem, obstacle_id = unique, f"obs_{unique}"
+        else:
+            file_stem = obstacle_id
+
+        if image is not None:
+            suffix = Path(image.filename or "").suffix or ".jpg"
+            dest_path = settings.IMAGES_DIR / f"{file_stem}{suffix}"
+            with dest_path.open("wb") as buffer:
+                shutil.copyfileobj(image.file, buffer)
+            image_url = f"{settings.PUBLIC_BASE_URL}/images/{dest_path.name}"
+        else:
+            # 이미지 없이도 좌표/타입만으로 로그를 남길 수 있게 허용 (테스트/시뮬레이션 용)
+            image_url = f"{settings.PUBLIC_BASE_URL}/images/placeholder.jpg"
+
+        row = await database.insert_obstacle(obstacle_id, type, x, y, image_url)
+        obstacle = _row_to_obstacle_log(row)
+        if camera_report:
+            response.status_code = 201
+
+    # 예전 방식 보고는 로봇이 장애물을 회피 중임을 FSM에 반영한다. 카메라 발견 보고는 회피 상태가 아니므로
+    # FSM 을 건드리지 않는다(상태는 로봇 telemetry 가 정한다).
+    if camera_report:
+        telemetry = await state_store.get_telemetry()
     else:
-        # 이미지 없이도 좌표/타입만으로 로그를 남길 수 있게 허용 (테스트/시뮬레이션 용)
-        image_url = f"{settings.PUBLIC_BASE_URL}/images/placeholder.jpg"
-
-    row = await database.insert_obstacle(obstacle_id, type, x, y, image_url)
-    obstacle = _row_to_obstacle_log(row)
-
-    # 로봇이 장애물을 회피 중임을 FSM에 반영
-    telemetry = await state_store.set_state(RobotState.EVADING)
+        telemetry = await state_store.set_state(RobotState.EVADING)
 
     # REQ-APP-02: 앱에 실시간 알림 (장애물 알림 + 최신 상태)
     await manager.broadcast_to_apps(
@@ -93,8 +147,11 @@ async def create_obstacle(
 
 
 @router.get("", response_model=list[ObstacleLog])
-async def list_obstacles(status: Optional[str] = None) -> list[ObstacleLog]:
-    rows = await database.list_obstacles(status=status)
+async def list_obstacles(
+    status: Optional[str] = None, include_archived: bool = False
+) -> list[ObstacleLog]:
+    """지도에 표시 중인 장애물. ``include_archived=true`` 면 이전 청소의 기록까지 모두."""
+    rows = await database.list_obstacles(status=status, include_archived=include_archived)
     return [_row_to_obstacle_log(row) for row in rows]
 
 

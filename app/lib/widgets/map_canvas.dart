@@ -3,15 +3,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
 
 import '../models/coordinate.dart';
 import '../models/map_info.dart';
 import '../models/obstacle_log.dart';
 import '../models/robot_telemetry.dart';
-import '../theme/cupertino_style.dart';
 
-/// REQ-APP-01: 로봇의 위치를 2D 캔버스에 그린다.
+/// REQ-APP-01: 로봇의 위치와 청소 궤적(Swept Path)을 2D 캔버스에 그린다.
 /// REQ-APP-02/03: 장애물 핀을 지도 위에 표시하고, 탭하면 상세 정보를 보여준다.
 ///
 /// 좌표는 ROS 맵 좌표(미터, x: 오른쪽+, y: 위쪽+)를 그대로 쓴다(서버가 `/explore_map`
@@ -33,7 +31,6 @@ class MapCanvas extends StatefulWidget {
     this.mapImageBytes,
     this.onObstacleTap,
     this.pixelsPerMeter = 40.0,
-    this.bottomInset = 0.0,
   });
 
   final RobotTelemetry telemetry;
@@ -45,16 +42,11 @@ class MapCanvas extends StatefulWidget {
   /// 배율 1배일 때 1m 가 차지하는 화면 픽셀 수.
   final double pixelsPerMeter;
 
-  /// 지도 위에 떠 있는 하단 패널(글래스 컨트롤 패널)이 가리는 높이.
-  /// 확대/축소 버튼이 패널과 겹치지 않도록 이만큼 위로 띄운다.
-  final double bottomInset;
-
   @override
   State<MapCanvas> createState() => _MapCanvasState();
 }
 
-class _MapCanvasState extends State<MapCanvas>
-    with SingleTickerProviderStateMixin {
+class _MapCanvasState extends State<MapCanvas> {
   static const double _minZoom = 0.25;
   static const double _maxZoom = 8.0;
   static const double _buttonZoomFactor = 1.4;
@@ -68,68 +60,6 @@ class _MapCanvasState extends State<MapCanvas>
   // 제스처 시작 시점의 값. 핀치 중심(focal point) 아래의 월드 점을 고정하는 데 쓴다.
   double _gestureStartZoom = 1.0;
   Offset _gestureWorldAtFocal = Offset.zero; // 중앙 기준, 배율 1배 픽셀 단위
-
-  // -- 로봇 마커 스프링 이동 (표시 전용; 텔레메트리 값 자체는 그대로 사용) -----
-  late final AnimationController _robotController =
-      AnimationController.unbounded(vsync: this, value: 1);
-  late Pose2D _robotFrom;
-  late Pose2D _robotTo;
-
-  /// 스프링으로 부드럽게 따라가는 로봇의 화면 표시용 포즈.
-  Pose2D get _robotPose {
-    final t = _robotController.value;
-    final dTheta = math.atan2(
-      math.sin(_robotTo.theta - _robotFrom.theta),
-      math.cos(_robotTo.theta - _robotFrom.theta),
-    );
-    return Pose2D(
-      x: _robotFrom.x + (_robotTo.x - _robotFrom.x) * t,
-      y: _robotFrom.y + (_robotTo.y - _robotFrom.y) * t,
-      theta: _robotFrom.theta + dTheta * t,
-    );
-  }
-
-  void _retargetRobot(Pose2D next) {
-    // 진행 중이던 속도를 이어받아 목표가 계속 바뀌어도 끊기지 않게 한다.
-    final tv = _robotController.velocity;
-    final vx = (_robotTo.x - _robotFrom.x) * tv;
-    final vy = (_robotTo.y - _robotFrom.y) * tv;
-    final from = _robotPose;
-    final dx = next.x - from.x;
-    final dy = next.y - from.y;
-    final d2 = dx * dx + dy * dy;
-    final v0 = d2 > 1e-9
-        ? ((vx * dx + vy * dy) / d2).clamp(-20.0, 20.0).toDouble()
-        : 0.0;
-    _robotFrom = from;
-    _robotTo = next;
-    _robotController.animateWith(
-      SpringSimulation(AppSprings.follow, 0, 1, v0),
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _robotFrom = _robotTo = widget.telemetry.currentPosition;
-  }
-
-  @override
-  void didUpdateWidget(covariant MapCanvas oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final next = widget.telemetry.currentPosition;
-    if (next.x != _robotTo.x ||
-        next.y != _robotTo.y ||
-        next.theta != _robotTo.theta) {
-      _retargetRobot(next);
-    }
-  }
-
-  @override
-  void dispose() {
-    _robotController.dispose();
-    super.dispose();
-  }
 
   double get _ppm => widget.pixelsPerMeter * _zoom;
 
@@ -247,42 +177,32 @@ class _MapCanvasState extends State<MapCanvas>
     final percent = (_zoom * 100).round();
     return Positioned(
       right: 12,
-      bottom: widget.bottomInset + 12,
-      child: SpringEntrance(
-        fade: false,
-        offset: const Offset(40, 0),
-        child: GlassPanel(
-          radius: 22,
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AppIconButton(
-                plain: true,
-                size: 44,
-                icon: CupertinoIcons.plus,
-                tooltip: '확대',
-                onTap: _zoom < _maxZoom ? () => _zoomBy(_buttonZoomFactor) : null,
-              ),
-              AppIconButton(
-                plain: true,
-                size: 44,
-                icon: CupertinoIcons.scope,
-                tooltip: '처음 보기 ($percent%)',
-                onTap: _resetView,
-              ),
-              AppIconButton(
-                plain: true,
-                size: 44,
-                icon: CupertinoIcons.minus,
-                tooltip: '축소',
-                onTap: _zoom > _minZoom
-                    ? () => _zoomBy(1 / _buttonZoomFactor)
-                    : null,
-              ),
-            ],
+      bottom: 12,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: null,
+            tooltip: '확대',
+            onPressed: _zoom < _maxZoom ? () => _zoomBy(_buttonZoomFactor) : null,
+            child: const Icon(Icons.add),
           ),
-        ),
+          const SizedBox(height: 8),
+          FloatingActionButton.small(
+            heroTag: null,
+            tooltip: '처음 보기 ($percent%)',
+            onPressed: _resetView,
+            child: const Icon(Icons.center_focus_strong),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton.small(
+            heroTag: null,
+            tooltip: '축소',
+            onPressed:
+                _zoom > _minZoom ? () => _zoomBy(1 / _buttonZoomFactor) : null,
+            child: const Icon(Icons.remove),
+          ),
+        ],
       ),
     );
   }
@@ -300,8 +220,6 @@ class _MapCanvasState extends State<MapCanvas>
           pan: _pan,
           worldToScreen: _worldToScreen,
           anchor: _anchor,
-          robotPose: () => _robotPose,
-          repaint: _robotController,
         );
         return Stack(
           children: [
@@ -316,7 +234,7 @@ class _MapCanvasState extends State<MapCanvas>
                     size: size,
                     child: CustomPaint(
                       painter: _BackgroundPainter(),
-                      // 배경 -> 지도 이미지(child) -> 격자/장애물/로봇 순으로 그린다.
+                      // 배경 -> 지도 이미지(child) -> 격자/궤적/장애물/로봇 순으로 그린다.
                       child: Stack(
                         fit: StackFit.expand,
                         clipBehavior: Clip.hardEdge,
@@ -341,7 +259,7 @@ class _BackgroundPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = AppColors.background,
+      Paint()..color = const Color(0xFFF5F5F5),
     );
   }
 
@@ -357,9 +275,7 @@ class _MapPainter extends CustomPainter {
     required this.pan,
     required this.worldToScreen,
     required this.anchor,
-    required this.robotPose,
-    required Listenable repaint,
-  }) : super(repaint: repaint);
+  });
 
   final RobotTelemetry telemetry;
   final List<ObstacleLog> obstacles;
@@ -370,20 +286,18 @@ class _MapPainter extends CustomPainter {
   /// 배율 1배일 때 화면 중앙에 놓이는 기준점 (지도의 start_pose).
   final Coordinate anchor;
 
-  /// 스프링으로 보간된 로봇 표시 포즈.
-  final Pose2D Function() robotPose;
-
   @override
   void paint(Canvas canvas, Size size) {
     _drawGrid(canvas, size);
     _drawStartPoint(canvas, size);
+    _drawSweptPath(canvas, size);
     _drawObstacles(canvas, size);
     _drawRobot(canvas, size);
   }
 
   void _drawGrid(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.06)
+      ..color = Colors.grey.withValues(alpha: 0.25)
       ..strokeWidth = 1;
     // 많이 축소하면 1m 격자가 너무 촘촘해지므로 간격을 키운다.
     var gridMeters = 1.0;
@@ -402,7 +316,7 @@ class _MapPainter extends CustomPainter {
     }
 
     final axisPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.16)
+      ..color = Colors.grey.withValues(alpha: 0.6)
       ..strokeWidth = 1.5;
     canvas.drawLine(Offset(0, origin.dy), Offset(size.width, origin.dy), axisPaint);
     canvas.drawLine(Offset(origin.dx, 0), Offset(origin.dx, size.height), axisPaint);
@@ -411,58 +325,52 @@ class _MapPainter extends CustomPainter {
   void _drawStartPoint(Canvas canvas, Size size) {
     final point = worldToScreen(size, anchor);
     final paint = Paint()
-      ..color = AppColors.inkSecondary
+      ..color = Colors.blueGrey
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     canvas.drawCircle(point, 7, paint);
-    canvas.drawCircle(point, 2, Paint()..color = AppColors.inkSecondary);
+    canvas.drawCircle(point, 2, Paint()..color = Colors.blueGrey);
+  }
+
+  void _drawSweptPath(Canvas canvas, Size size) {
+    if (telemetry.sweptPath.length < 2) return;
+    final paint = Paint()
+      ..color = Colors.blueAccent
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final path = Path();
+    final first = worldToScreen(size, telemetry.sweptPath.first);
+    path.moveTo(first.dx, first.dy);
+    for (final coord in telemetry.sweptPath.skip(1)) {
+      final point = worldToScreen(size, coord);
+      path.lineTo(point.dx, point.dy);
+    }
+    canvas.drawPath(path, paint);
   }
 
   void _drawObstacles(Canvas canvas, Size size) {
     for (final obstacle in obstacles) {
       final center = worldToScreen(size, obstacle.mapCoordinate);
-
-      // 상태별 모노크롬 표현: 미청소=검정, 재청소 중=흰색+검정 테두리, 청소됨=옅은 회색.
-      final Color fillColor;
-      final Color glyphColor;
-      final Color ringColor;
-      switch (obstacle.status) {
-        case 'cleared':
-          fillColor = const Color(0xFFC7C7CC);
-          glyphColor = Colors.white;
-          ringColor = Colors.white;
-        case 'recleaning':
-          fillColor = Colors.white;
-          glyphColor = AppColors.ink;
-          ringColor = AppColors.ink;
-        default:
-          fillColor = AppColors.ink;
-          glyphColor = Colors.white;
-          ringColor = Colors.white;
-      }
-
-      canvas.drawCircle(
-        center.translate(0, 3),
-        11,
-        Paint()
-          ..color = Colors.black.withValues(alpha: 0.25)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
-      );
-      canvas.drawCircle(center, 10, Paint()..color = fillColor);
-      canvas.drawCircle(
-        center,
-        10,
-        Paint()
-          ..color = ringColor
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
+      final color = switch (obstacle.status) {
+        'cleared' => Colors.green,
+        'recleaning' => Colors.purple,
+        _ => Colors.redAccent,
+      };
+      final fill = Paint()..color = color;
+      final border = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawCircle(center, 10, fill);
+      canvas.drawCircle(center, 10, border);
 
       final textPainter = TextPainter(
-        text: TextSpan(
+        text: const TextSpan(
           text: '!',
           style: TextStyle(
-            color: glyphColor,
+            color: Colors.white,
             fontSize: 12,
             fontWeight: FontWeight.bold,
           ),
@@ -477,47 +385,20 @@ class _MapPainter extends CustomPainter {
   }
 
   void _drawRobot(Canvas canvas, Size size) {
-    final pose = robotPose();
-    final center = worldToScreen(size, pose);
+    final center = worldToScreen(size, telemetry.currentPosition);
+    final bodyPaint = Paint()..color = Colors.deepOrange;
+    canvas.drawCircle(center, 12, bodyPaint);
 
-    // 부드러운 드롭 섀도 + 검정 본체 + 흰 링.
-    canvas.drawCircle(
-      center.translate(0, 4),
-      14,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.28)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    // 로봇의 진행 방향(theta)을 화살표로 표시.
+    final theta = telemetry.currentPosition.theta;
+    final direction = Offset(
+      center.dx + 18 * math.cos(theta),
+      center.dy - 18 * math.sin(theta),
     );
-    canvas.drawCircle(center, 13, Paint()..color = AppColors.ink);
-    canvas.drawCircle(
-      center,
-      13,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5,
-    );
-
-    // 로봇의 진행 방향(theta)을 흰색 쐐기로 표시.
-    final theta = pose.theta;
-    Offset dir(double angle, double r) => Offset(
-          center.dx + r * math.cos(angle),
-          center.dy - r * math.sin(angle),
-        );
-    final wedge = Path()
-      ..moveTo(dir(theta, 9).dx, dir(theta, 9).dy)
-      ..lineTo(dir(theta + 2.5, 6).dx, dir(theta + 2.5, 6).dy)
-      ..lineTo(dir(theta - 2.5, 6).dx, dir(theta - 2.5, 6).dy)
-      ..close();
-    canvas.drawPath(wedge, Paint()..color = Colors.white);
-    canvas.drawLine(
-      dir(theta, 13),
-      dir(theta, 21),
-      Paint()
-        ..color = AppColors.ink
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round,
-    );
+    final headingPaint = Paint()
+      ..color = Colors.deepOrange
+      ..strokeWidth = 3;
+    canvas.drawLine(center, direction, headingPaint);
   }
 
   @override

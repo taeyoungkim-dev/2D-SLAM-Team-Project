@@ -119,7 +119,7 @@ controller_server:
       plugin: "nav2_controller::SimpleGoalChecker"
       #edited by tky
       #xy_goal_tolerance: 0.25
-      xy_goal_tolerance: 0.1
+      xy_goal_tolerance: 0.15
       #edited by tky
       #yaw_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.35

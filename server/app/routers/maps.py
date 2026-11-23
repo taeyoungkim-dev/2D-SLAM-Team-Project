@@ -35,6 +35,7 @@ router = APIRouter(prefix="/api/map", tags=["map"])
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 _META_NAME = "latest_map.json"
+_VERSION_NAME = "map_version.txt"  # 마지막으로 쓴 version. 지도 파일을 지워도 version 이 되돌아가지 않게 한다.
 _VERSIONED_RE = re.compile(r"^map_(\d+)\.(png|jpg|jpeg)$", re.IGNORECASE)
 _KEEP_OLD_IMAGES = 3  # 최신 이미지 외에 남겨둘 이전 버전 수
 
@@ -70,6 +71,13 @@ def _read_meta() -> Optional[MapInfo]:
         return None
 
 
+def _last_version() -> int:
+    try:
+        return int((settings.MAPS_DIR / _VERSION_NAME).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0
+
+
 def _atomic_write(dest: Path, data: bytes) -> None:
     """읽는 쪽이 쓰다 만 파일을 보지 않도록 임시 파일에 쓴 뒤 교체한다."""
     tmp = dest.with_name(dest.name + ".tmp")
@@ -98,7 +106,8 @@ async def upload_map(
 
     previous = _read_meta()
     existing = _versioned_images()
-    version = max(previous.version if previous else 0, existing[-1][0] if existing else 0) + 1
+    # version 은 앱이 "더 새로운 지도인가"를 판단하는 기준이므로 절대 되돌아가지 않는다(지도를 비운 뒤에도).
+    version = max(previous.version if previous else 0, existing[-1][0] if existing else 0, _last_version()) + 1
     dest_path = settings.MAPS_DIR / f"map_{version:06d}{suffix}"
     _atomic_write(dest_path, await image.read())
 
@@ -117,6 +126,7 @@ async def upload_map(
         updated_at=datetime.now(timezone.utc),
     )
     _atomic_write(settings.MAPS_DIR / _META_NAME, info.model_dump_json().encode("utf-8"))
+    _atomic_write(settings.MAPS_DIR / _VERSION_NAME, str(version).encode("utf-8"))
 
     # 최신 이미지 + 직전 몇 개만 남기고 정리한다.
     for _, old in _versioned_images()[: -(_KEEP_OLD_IMAGES + 1)]:

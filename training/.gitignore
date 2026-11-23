@@ -1,0 +1,13 @@
+# 대용량 산출물은 커밋하지 않는다 (디렉토리 유지를 위한 .gitkeep 제외)
+datasets/*
+runs/*
+weights/*
+!datasets/.gitkeep
+!runs/.gitkeep
+!weights/.gitkeep
+*.pt
+*.onnx
+*.engine
+
+# 장애물 인식 노드(robot_ws/scripts/obstacle_reporter)가 쓰는 최종 모델은 커밋한다 (약 5MB)
+!weights/obstacles_v1_best.pt

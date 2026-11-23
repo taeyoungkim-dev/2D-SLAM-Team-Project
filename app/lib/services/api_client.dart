@@ -78,15 +78,27 @@ class ApiClient {
         if (obstacleId != null) 'obstacle_id': obstacleId,
       }),
     );
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw ApiException(res.statusCode, res.body);
-    }
+    _checkCommandResponse(res);
   }
 
   Future<void> emergencyStop() async {
     final res = await _http.post(_uri('/api/commands/emergency_stop'));
+    _checkCommandResponse(res);
+  }
+
+  /// 서버가 명령을 받았어도 로봇(ros2_bridge_node)이 서버에 연결돼 있지 않으면 명령은 전달되지 않는다.
+  /// 서버는 그래도 상태를 먼저 바꿔 버리므로, 앱이 사용자에게 알려 준다.
+  void _checkCommandResponse(http.Response res) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw ApiException(res.statusCode, res.body);
+    }
+    try {
+      final body = jsonDecode(res.body);
+      if (body is Map && body['delivered_to_robot'] == false) {
+        throw const RobotNotConnectedException();
+      }
+    } on FormatException {
+      // 본문이 JSON 이 아니면 전달 여부를 알 수 없으므로 성공으로 본다.
     }
   }
 
@@ -139,6 +151,14 @@ class ApiClient {
       return false;
     }
   }
+}
+
+class RobotNotConnectedException implements Exception {
+  const RobotNotConnectedException();
+
+  @override
+  String toString() => '로봇이 서버에 연결되어 있지 않아 명령이 전달되지 않았습니다 '
+      '(ros2_bridge_node.py 가 실행 중인지 확인하세요)';
 }
 
 class ApiException implements Exception {

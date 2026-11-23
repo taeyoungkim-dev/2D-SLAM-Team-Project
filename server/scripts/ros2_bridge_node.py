@@ -29,15 +29,15 @@ ROS2 -> 서버
 서버 -> ROS2 (``/ws/robot`` 으로 수신하는 command 메시지)
     stop             -> <cleaner>/pause (Trigger) + 진행 중인 Nav2 goal 취소
     start_cleaning   -> coverage_cleaner 가 없으면 저장소 최상위에서 프로세스로 실행하고,
-                        이미 떠 있으면 <cleaner>/resume (Trigger)
+                        이미 떠 있으면 <cleaner>/reset (방문 기록 삭제) 후 <cleaner>/resume (Trigger).
+                        새 청소이므로 /coverage_visited_map 이 초기화된다(서버는 장애물 표시를 초기화).
     start_mapping    -> 상태만 MAPPING으로 표시 (탐색 노드는 별도 실행)
     return_to_dock   -> /return_home (std_msgs/Bool) 에 True 발행 [RETURNING]
                         coverage_cleaner 가 청소를 멈추고 도크 위치/yaw 로 돌아온다.
                         (cleaner 가 없으면 예전처럼 pause + Nav2 NavigateToPose(dock))
     target_reclean   -> pause + Nav2 NavigateToPose(target) [TARGET_RECLEANING]
 
-아직 포함되지 않은 것
-    YOLO 장애물 감지 -> ``POST /api/obstacles`` (감지 topic이 정의되면 추가).
+장애물 발견 보고는 이 노드가 아니라 ``robot_ws/scripts/obstacle_reporter`` 가 서버에 직접 올린다.
 
 사용법 (ROS2 환경을 source 한 뒤)
     python3 server/scripts/ros2_bridge_node.py --ros-args \
@@ -270,6 +270,7 @@ class ServerBridgeNode(Node):
         # --- 명령 실행용 클라이언트 -------------------------------------------
         self.pause_client = self.create_client(Trigger, f"{cleaner}/pause")
         self.resume_client = self.create_client(Trigger, f"{cleaner}/resume")
+        self.reset_client = self.create_client(Trigger, f"{cleaner}/reset")
         self.nav_client = ActionClient(self, NavigateToPose, str(p("nav_action_name").value))
         # 복귀 스위치는 volatile: 예전 True 가 나중에 뜬 노드를 바로 복귀시키지 않게 한다.
         self.return_home_pub = self.create_publisher(
@@ -390,14 +391,21 @@ class ServerBridgeNode(Node):
             self._state_override = state
             self._return_wait_until = 0.0
 
-    def _call_trigger(self, client, label: str) -> None:
+    def _call_trigger(self, client, label: str, then=None) -> None:
+        """Trigger 서비스를 호출한다. ``then`` 이 있으면 응답(성공/실패 무관)을 받은 뒤 호출한다."""
         if not client.service_is_ready():
             self.get_logger().warn(f"{label} 서비스가 준비되지 않음 (coverage_cleaner 실행 중인지 확인)")
+            if then is not None:
+                then()
             return
         future = client.call_async(Trigger.Request())
-        future.add_done_callback(
-            lambda f: self.get_logger().info(f"{label}: {getattr(f.result(), 'message', f.exception())}")
-        )
+
+        def done(f) -> None:
+            self.get_logger().info(f"{label}: {getattr(f.result(), 'message', f.exception())}")
+            if then is not None:
+                then()
+
+        future.add_done_callback(done)
 
     def _cancel_nav(self) -> None:
         if self._nav_goal_handle is not None:
@@ -455,9 +463,20 @@ class ServerBridgeNode(Node):
         self._send_nav_goal(self.dock[0], self.dock[1], self.dock[2], on_success_state="IDLE")
 
     def _start_cleaning(self) -> None:
-        """coverage_cleaner 가 떠 있으면 resume, 없으면 저장소 최상위에서 실행한다."""
+        """coverage_cleaner 가 떠 있으면 방문 기록을 지우고 resume, 없으면 저장소 최상위에서 실행한다.
+
+        새 청소를 시작하면 청소 완료 영역(/coverage_visited_map)이 초기화된다. 앱의 장애물 표시 초기화는
+        같은 ``start_cleaning`` 명령을 받은 서버가 한다.
+        """
+        with self._lock:  # 앱 지도에 그려지는 이전 청소의 초록색 영역을 바로 지운다.
+            self._visited_msg = None
+            self._map_dirty = True
         if self._cleaner_running():
-            self._call_trigger(self.resume_client, "resume")  # 이미 실행 중(직접 켠 경우 포함)
+            # reset(방문 기록 삭제 + 일시정지) -> resume(새로 계획). 이미 실행 중(직접 켠 경우 포함)이어도 같다.
+            self._call_trigger(
+                self.reset_client, "reset",
+                then=lambda: self._call_trigger(self.resume_client, "resume"),
+            )
             return
         if self._cleaner_proc is not None and self._cleaner_proc.poll() is None:
             self.get_logger().info("coverage_cleaner 가 시작되는 중입니다")
@@ -468,7 +487,9 @@ class ServerBridgeNode(Node):
             self.get_logger().error(f"coverage_cleaner 스크립트를 찾을 수 없음: {script}")
             return
         command = [sys.executable, f"./{self.cleaner_script}", "--ros-args",
-                   "-p", f"use_sim_time:={'true' if self.use_sim_time else 'false'}"]
+                   "-p", f"use_sim_time:={'true' if self.use_sim_time else 'false'}",
+                   # cleaner 기본값은 대기(auto_plan=false)다. 앱의 [청소 시작]으로 띄우는 것이므로 바로 시작한다.
+                   "-p", "auto_plan:=true"]
         for arg in self.cleaner_args:
             command += ["-p", arg]
         self.get_logger().info(f"coverage_cleaner 실행 (cwd={REPO_ROOT}): {' '.join(command)}")

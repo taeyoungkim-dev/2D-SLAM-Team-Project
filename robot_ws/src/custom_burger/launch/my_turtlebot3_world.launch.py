@@ -1,8 +1,10 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 def generate_launch_description():
@@ -24,7 +26,8 @@ def generate_launch_description():
     gzclient_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory('gazebo_ros'), 'launch', 'gzclient.launch.py')
-        )
+        ),
+        condition=IfCondition(LaunchConfiguration('gui'))
     )
 
     # ---------------------------------------------------------
@@ -34,12 +37,17 @@ def generate_launch_description():
     with open(urdf_file, 'r') as infp:
         robot_desc = infp.read()
 
+    # URDF 의 ${namespace} 는 xacro 자리표시자인데 여기서는 xacro 처리 없이 텍스트로 읽는다.
+    # 지우지 않으면 TF 프레임 이름이 '${namespace}base_footprint' 처럼 글자 그대로 올라가
+    # diff drive 가 발행하는 odom -> base_footprint 와 이어지지 않아 카메라 자세를 구할 수 없다.
+    robot_desc = robot_desc.replace('${namespace}', '')
+
     robot_state_publisher_cmd = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
-        parameters=[{'robot_description': robot_desc}]
+        parameters=[{'robot_description': robot_desc, 'use_sim_time': True}]
     )
 
     sdf_file = os.path.join(custom_burger_dir, 'models', 'turtlebot3_burger', 'model.sdf')
@@ -58,6 +66,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        # gui:=false 면 Gazebo 창(gzclient)을 띄우지 않는다(기본 true).
+        DeclareLaunchArgument('gui', default_value='true'),
         gzserver_cmd,
         gzclient_cmd,
         robot_state_publisher_cmd,

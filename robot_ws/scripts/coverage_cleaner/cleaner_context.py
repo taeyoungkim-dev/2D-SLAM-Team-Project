@@ -2,7 +2,7 @@
 
 cleaner_node.py 가 컴포넌트를 만든 뒤 아래 속성에 연결한다.
   pose_provider, map_updater, area, planner, goal_checker, executor,
-  status, completion, home
+  status, completion, home, obstacles
 컴포넌트끼리는 ctx.<이름>.<메서드> 로 서로를 호출한다.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ class Context:
         self.params, self.state, self.logger, self.clock = params, state, logger, clock
         self.pose_provider = self.map_updater = self.area = self.planner = None
         self.goal_checker = self.executor = self.status = self.completion = None
-        self.home = None
+        self.home = self.obstacles = None
 
     def warn(self, key, message):
         now = time.monotonic()

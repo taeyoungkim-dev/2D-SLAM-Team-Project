@@ -18,7 +18,11 @@ def client():
     tmpdir = tempfile.mkdtemp()
     os.environ["SERVER_DB_PATH"] = os.path.join(tmpdir, "test.db")
 
+    from app.config import settings
     from app.main import app  # 환경변수 설정 후 import 해야 DB 경로가 반영됨
+
+    # 앱 모듈은 한 번만 import 되므로, 테스트마다 새 DB 를 쓰도록 경로를 직접 바꾼다.
+    settings.DB_PATH = type(settings.DB_PATH)(tmpdir) / "test.db"
 
     with TestClient(app) as test_client:
         yield test_client
@@ -180,3 +184,97 @@ def test_history_crud(client: TestClient) -> None:
 
     list_resp = client.get("/api/history")
     assert len(list_resp.json()) == 1
+
+
+def _report(client: TestClient, cls: str, x: float, y: float):
+    return client.post(
+        "/api/obstacles",
+        data={"type": cls, "x": x, "y": y},
+        files={"image": ("frame.jpg", b"\xff\xd8fake-jpeg", "image/jpeg")},
+    )
+
+
+def test_camera_report_saved_with_time_and_class(client: TestClient, tmp_path, monkeypatch) -> None:
+    import re
+
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "IMAGES_DIR", tmp_path)
+    state_before = client.get("/api/telemetry").json()["current_state"]
+    resp = _report(client, "power_cable", -0.24, -1.92)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["type"] == "power_cable"
+    assert body["map_coordinate"] == {"x": -0.24, "y": -1.92}
+    assert body["status"] == "uncleared"
+    assert body["created_at"]
+    # 사진은 <시간>_<class>.jpg 로 저장된다.
+    saved = [p.name for p in tmp_path.iterdir()]
+    assert len(saved) == 1
+    assert re.fullmatch(r"\d{8}_\d{6}_power_cable\.jpg", saved[0])
+    assert body["image_url"].endswith(f"/images/{saved[0]}")
+    assert (tmp_path / saved[0]).read_bytes() == b"\xff\xd8fake-jpeg"
+    # 카메라 발견 보고는 FSM 을 EVADING 으로 바꾸지 않는다.
+    assert client.get("/api/telemetry").json()["current_state"] == state_before
+
+
+def test_camera_report_one_marker_per_obstacle(client: TestClient, tmp_path, monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "IMAGES_DIR", tmp_path)
+    first = _report(client, "cardboard_box", 1.08, -0.56)
+    again = _report(client, "cardboard_box", 1.08, -0.56)      # 같은 장애물을 계속 보고 있다
+    other = _report(client, "urine_puddle", 1.10, -1.83)
+    assert (first.status_code, again.status_code, other.status_code) == (201, 200, 201)
+    assert again.json()["obstacle_id"] == first.json()["obstacle_id"]
+    assert len(list(tmp_path.iterdir())) == 2                  # 중복 보고의 사진은 저장하지 않는다
+    listed = client.get("/api/obstacles").json()
+    assert sorted(o["type"] for o in listed) == ["cardboard_box", "urine_puddle"]
+
+
+def test_markers_stay_until_next_cleaning_starts(client: TestClient, tmp_path, monkeypatch) -> None:
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "IMAGES_DIR", tmp_path)
+    _report(client, "power_cable", -0.24, -1.92)
+    # 중간에 종료/복귀해도 표시는 남는다.
+    for call in (
+        lambda: client.post("/api/commands", json={"command": "stop"}),
+        lambda: client.post("/api/commands/emergency_stop"),
+        lambda: client.post("/api/commands", json={"command": "start_mapping"}),
+    ):
+        assert call().status_code == 200
+        assert len(client.get("/api/obstacles").json()) == 1
+
+    # 다시 청소를 시작하면 표시가 초기화되고 앱에 알려진다.
+    with client.websocket_connect("/ws/app") as app_ws:
+        app_ws.receive_json()  # 접속 직후 telemetry 스냅샷
+        assert client.post("/api/commands", json={"command": "start_cleaning"}).status_code == 200
+        types = []
+        while "obstacles_reset" not in types:
+            types.append(app_ws.receive_json()["type"])
+    assert client.get("/api/obstacles").json() == []
+    # 사진/시간/class 기록은 남는다.
+    archived = client.get("/api/obstacles", params={"include_archived": "true"}).json()
+    assert [o["type"] for o in archived] == ["power_cable"]
+    assert len(list(tmp_path.iterdir())) == 1
+
+    # 새 청소에서는 같은 장애물을 다시 발견하면 새 표시가 만들어진다.
+    again = _report(client, "power_cable", -0.24, -1.92)
+    assert again.status_code == 201
+    assert again.json()["obstacle_id"] != archived[0]["obstacle_id"]
+    assert len(client.get("/api/obstacles").json()) == 1
+
+
+def test_map_version_never_goes_back(client: TestClient, tmp_path, monkeypatch) -> None:
+    """지도 파일을 지워도 version 은 이어진다(앱은 version 이 바뀔 때 새 지도를 받는다)."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "MAPS_DIR", tmp_path)
+    fields = {"resolution": "0.05", "width": "4", "height": "4", "origin_x": "0", "origin_y": "0"}
+    files = {"image": ("m.png", b"x", "image/png")}
+    assert client.post("/api/map", data=fields, files=files).json()["version"] == 1
+    for path in tmp_path.glob("map_0*.png"):
+        path.unlink()
+    (tmp_path / "latest_map.json").unlink()
+    assert client.post("/api/map", data=fields, files=files).json()["version"] == 2

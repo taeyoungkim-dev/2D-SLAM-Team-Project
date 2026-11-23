@@ -1,6 +1,7 @@
 """SQLite 기반 영속 저장소.
 
-- obstacles: 장애물 로그 (REQ-ROB-02 / REQ-APP-03)
+- obstacles: 장애물 로그 (REQ-ROB-02 / REQ-APP-03). ``active=0`` 은 이전 청소의 기록(앱 지도에서는 내려가지만
+  시간/class/사진은 남는다).
 - history: 청소 완료 기록 (REQ-APP-04, P1)
 
 데모 규모의 프로젝트이므로 무거운 ORM 대신 `aiosqlite`를 사용해 FastAPI의
@@ -26,7 +27,8 @@ CREATE TABLE IF NOT EXISTS obstacles (
     image_url TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'uncleared',
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS history (
@@ -45,6 +47,11 @@ async def init_db() -> None:
     settings.ensure_directories()
     async with aiosqlite.connect(settings.DB_PATH) as db:
         await db.executescript(_SCHEMA)
+        # 예전 DB(active 컬럼 없음) 마이그레이션
+        cursor = await db.execute("PRAGMA table_info(obstacles)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "active" not in columns:
+            await db.execute("ALTER TABLE obstacles ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
         await db.commit()
 
 
@@ -72,11 +79,11 @@ async def insert_obstacle(
     async with get_db() as db:
         await db.execute(
             """
-            INSERT INTO obstacles (obstacle_id, type, x, y, image_url, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'uncleared', ?, ?)
+            INSERT INTO obstacles (obstacle_id, type, x, y, image_url, status, created_at, updated_at, active)
+            VALUES (?, ?, ?, ?, ?, 'uncleared', ?, ?, 1)
             ON CONFLICT(obstacle_id) DO UPDATE SET
                 type=excluded.type, x=excluded.x, y=excluded.y,
-                image_url=excluded.image_url, updated_at=excluded.updated_at
+                image_url=excluded.image_url, updated_at=excluded.updated_at, active=1
             """,
             (obstacle_id, type_, x, y, image_url, now, now),
         )
@@ -93,15 +100,39 @@ async def get_obstacle(obstacle_id: str) -> Optional[dict[str, Any]]:
         return dict(row) if row else None
 
 
-async def list_obstacles(status: Optional[str] = None) -> list[dict[str, Any]]:
+async def find_active_obstacle_by_type(type_: str) -> Optional[dict[str, Any]]:
+    """이번 청소에서 이미 발견해 표시 중인 같은 class 의 장애물(상태 무관)."""
     async with get_db() as db:
-        if status:
-            cursor = await db.execute(
-                "SELECT * FROM obstacles WHERE status = ? ORDER BY created_at DESC",
-                (status,),
-            )
-        else:
-            cursor = await db.execute("SELECT * FROM obstacles ORDER BY created_at DESC")
+        cursor = await db.execute(
+            "SELECT * FROM obstacles WHERE type = ? AND active = 1 ORDER BY created_at DESC LIMIT 1",
+            (type_,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def deactivate_all_obstacles() -> int:
+    """새 청소 시작: 지도 표시를 모두 내린다(시간/class/사진 기록은 DB 와 이미지 폴더에 남는다)."""
+    async with get_db() as db:
+        cursor = await db.execute("UPDATE obstacles SET active = 0 WHERE active = 1")
+        await db.commit()
+        return cursor.rowcount
+
+
+async def list_obstacles(
+    status: Optional[str] = None, include_archived: bool = False
+) -> list[dict[str, Any]]:
+    where, args = [], []
+    if not include_archived:
+        where.append("active = 1")
+    if status:
+        where.append("status = ?")
+        args.append(status)
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    async with get_db() as db:
+        cursor = await db.execute(
+            f"SELECT * FROM obstacles{clause} ORDER BY created_at DESC", args
+        )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
@@ -119,7 +150,7 @@ async def update_obstacle_status(obstacle_id: str, status: str) -> Optional[dict
 async def count_uncleared_obstacles() -> int:
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT COUNT(*) as c FROM obstacles WHERE status != 'cleared'"
+            "SELECT COUNT(*) as c FROM obstacles WHERE status != 'cleared' AND active = 1"
         )
         row = await cursor.fetchone()
         return int(row["c"]) if row else 0

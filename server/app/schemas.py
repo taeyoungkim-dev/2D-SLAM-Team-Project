@@ -174,6 +174,7 @@ class WSEventType(str, Enum):
     TELEMETRY = "telemetry"
     OBSTACLE_ALERT = "obstacle_alert"
     OBSTACLE_UPDATE = "obstacle_update"
+    OBSTACLES_RESET = "obstacles_reset"
     MAP_UPDATE = "map_update"
     ROBOT_CONNECTED = "robot_connected"
     ROBOT_DISCONNECTED = "robot_disconnected"

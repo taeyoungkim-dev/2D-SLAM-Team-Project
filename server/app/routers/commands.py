@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
+from .. import database
 from ..schemas import CommandMessage, CommandRequest, RobotState, WSEvent, WSEventType
 from ..state_store import state_store
 from ..ws_manager import manager
@@ -27,7 +28,17 @@ _COMMAND_TO_STATE = {
 }
 
 
+async def _reset_obstacle_markers() -> None:
+    """새 청소를 시작하면 지도의 장애물 표시를 모두 내린다(사진/시간/class 기록은 남는다)."""
+    await database.deactivate_all_obstacles()
+    await manager.broadcast_to_apps(
+        WSEvent(type=WSEventType.OBSTACLES_RESET, payload={}).model_dump(mode="json")
+    )
+
+
 async def _dispatch(request: CommandRequest) -> dict:
+    if request.command == "start_cleaning":
+        await _reset_obstacle_markers()
     message = CommandMessage(
         command=request.command,
         target=request.target,

@@ -38,7 +38,7 @@ app/
 │       ├── status_app_bar.dart      # 상단 FSM 상태 표시 (REQ-APP-05)
 │       ├── map_canvas.dart          # 2D 캔버스: 위치/궤적/장애물 핀 (REQ-APP-01)
 │       ├── obstacle_marker_sheet.dart # 장애물 상세 + 치웠음/재청소 (REQ-APP-03)
-│       └── control_panel.dart       # 청소/매핑 시작, 정지/복귀 (REQ-SYS-01)
+│       └── control_panel.dart       # 청소 시작, 정지/복귀 (REQ-SYS-01)
 ├── test/
 │   └── widget_test.dart
 ├── pubspec.yaml
@@ -54,9 +54,10 @@ flutter pub get
 flutter run                # 연결된 기기/에뮬레이터에서 실행
 ```
 
-앱 실행 후 우측 상단 ⚙️ 아이콘 → **서버 설정** 화면에서 Local Backend
-Server가 실행 중인 PC의 LAN IP와 포트(기본 `8000`)를 입력하세요.
-(`server/README.md` 의 `SERVER_PUBLIC_BASE_URL` 과 동일한 IP)
+서버 IP는 **입력하지 않거나 틀리게 입력해도** 앱이 서버를 찾아 연결합니다
+(`lib/services/server_locator.dart`). 입력한 주소 → 에뮬레이터용 `10.0.2.2` → 기기와 같은
+/24 대역(같은 Wi-Fi) 순서로 `GET /api/health`(포트 기본 `8000`)에 응답하는 호스트를 씁니다.
+포트만 서버와 같게 맞춰 주세요(⚙️ → 서버 설정).
 
 ### 정적 분석 / 테스트
 
@@ -68,7 +69,7 @@ flutter test
 ## 3. 화면 흐름
 
 1. **홈 화면**: 상단 상태바(FSM 아이콘+텍스트, 배터리, 서버 연결 표시) +
-   중앙 2D 지도 캔버스 + 하단 명령 버튼(청소 시작/매핑 시작/정지·복귀).
+   중앙 2D 지도 캔버스 + 하단 명령 버튼(청소 시작/정지·복귀).
 2. 로봇이 장애물을 감지해 `EVADING` 상태로 바뀌면, 서버가 `/ws/app` 으로
    `obstacle_alert` 이벤트를 브로드캐스트 → 화면 하단에 스낵바 팝업
    (REQ-APP-02).

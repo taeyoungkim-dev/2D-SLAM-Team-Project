@@ -1,5 +1,14 @@
 import 'coordinate.dart';
 
+/// 장애물 class(학습 모델의 이름) -> 앱에 표시하는 이름.
+const Map<String, String> kObstacleNamesKo = {
+  'power_cable': '전선',
+  'cardboard_box': '박스',
+  'urine_puddle': '반려견 소변',
+};
+
+String obstacleDisplayName(String type) => kObstacleNamesKo[type] ?? type;
+
 /// AGENTS.md 3.1 Obstacle Log Schema.
 class ObstacleLog {
   final String obstacleId;
@@ -21,6 +30,9 @@ class ObstacleLog {
   });
 
   bool get isCleared => status == 'cleared';
+
+  /// 앱에 보여 주는 장애물 이름(한국어). 모르는 class 는 원래 이름을 그대로 쓴다.
+  String get displayName => obstacleDisplayName(type);
 
   factory ObstacleLog.fromJson(Map<String, dynamic> json) {
     return ObstacleLog(

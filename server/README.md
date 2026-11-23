@@ -68,7 +68,7 @@ ROS2 topic/TF 를 서버로 올리고 서버 명령을 ROS2 로 전달하는 노
 pip3 install --user "websockets>=12.0"   # 최초 1회 (requirements.txt 와 같은 버전)
 
 source /opt/ros/humble/setup.bash
-python3 server/scripts/ros2_bridge_node.py --ros-args \
+python3 ./scripts/ros2_bridge_node.py --ros-args \
   -p server_host:=127.0.0.1 -p server_port:=8000 -p use_sim_time:=true
 ```
 
@@ -131,8 +131,8 @@ FSM 상태값은 `AGENTS.md` 2장과 동일합니다:
 | `GET /api/health` | 서버/로봇 연결 상태 확인 | 디버깅 |
 | `GET /api/telemetry` | 현재 로봇 telemetry 조회 (폴링용) | App |
 | `POST /api/telemetry` | telemetry 갱신 (WS 대체용 REST 경로) | Robot |
-| `POST /api/obstacles` | 장애물 감지 로그 등록 (multipart, 이미지 포함) | Robot |
-| `GET /api/obstacles` | 장애물 목록 조회 (`?status=uncleared` 등 필터) | App |
+| `POST /api/obstacles` | 장애물 발견 보고 (multipart: `type`=class, `x`, `y`, `image`). 아래 5.4 | Robot |
+| `GET /api/obstacles` | 지도에 표시 중인 장애물 목록 (`?status=` 필터, `?include_archived=true` 면 이전 청소 기록 포함) | App |
 | `GET /api/obstacles/{id}` | 장애물 상세 조회 | App |
 | `POST /api/obstacles/{id}/resolve` | `{"action": "cleared" \| "recleaning"}` | App |
 | `POST /api/commands` | `{"command": "start_cleaning" \| "start_mapping" \| "stop" \| "return_to_dock" \| "target_reclean", "target"?: {x,y}}` | App |
@@ -176,6 +176,7 @@ FSM 상태값은 `AGENTS.md` 2장과 동일합니다:
 { "type": "telemetry", "payload": { "...RobotTelemetry..." } }
 { "type": "obstacle_alert", "payload": { "...ObstacleLog..." } }
 { "type": "obstacle_update", "payload": { "...ObstacleLog..." } }
+{ "type": "obstacles_reset", "payload": {} }   // 새 청소 시작: 앱은 지도의 장애물 표시를 모두 지운다
 { "type": "map_update", "payload": { "...MapInfo (5.3)..." } }
 { "type": "robot_connected", "payload": {} }
 { "type": "robot_disconnected", "payload": {} }
@@ -213,6 +214,24 @@ FSM 상태값은 `AGENTS.md` 2장과 동일합니다:
 픽셀 변환: `px = (x - origin.x) / resolution`, `py = height - (y - origin.y) / resolution`.
 지도가 자라면 `origin`/`width`/`height` 가 바뀌므로 항상 같은 응답의 값을 쓴다.
 
+### 5.4 장애물 발견 보고와 표시
+
+카메라에 장애물이 확실히 보이면 `robot_ws/scripts/obstacle_reporter` 가 class 와 사진을 올린다
+(루트 `README.md` 의 "장애물 발견 보고" 참고).
+
+```bash
+curl -X POST http://<서버>:8000/api/obstacles -F type=power_cable -F x=-0.24 -F y=-1.92 -F image=@frame.jpg
+```
+
+- `obstacle_id` 를 생략하면 서버가 `obs_<YYYYmmdd_HHMMSS>_<class>` 로 id 를 만들고, 사진을
+  `app/static/images/<YYYYmmdd_HHMMSS>_<class>.jpg` 로 저장한다. 발견 시각은 DB 의 `created_at` 이다.
+- 발견한 장애물 당 표시는 하나다. 이번 청소에서 같은 class 가 이미 표시 중이면 새로 만들지 않고 기존 항목을 `200` 으로 돌려준다
+  (새로 만들면 `201`). 이 경로의 보고는 FSM 상태를 바꾸지 않는다(`obstacle_id` 를 직접 주는 예전 방식은 `EVADING` 으로 바꾼다).
+- 청소를 끝내고 복귀하거나 중간에 종료/복귀해도 표시는 남는다. **새 청소를 시작할 때(`start_cleaning`)만** 서버가 표시를 모두 내리고
+  앱에 `obstacles_reset` 을 보낸다. 내려간 기록(시간, class, 사진)은 DB 와 `images/` 에 남고 `?include_archived=true` 로 조회한다.
+- 같은 때 `ros2_bridge_node.py` 가 `coverage_cleaner` 의 `~/reset` -> `~/resume` 을 호출해 `/coverage_visited_map`(청소 완료 영역)도
+  초기화한다.
+
 ## 6. 로봇(ROS2) 쪽 연동 가이드
 
 이 저장소의 `robot_ws` 는 ROS2 노드만 포함하므로, 실제 연동을 위해서는
@@ -220,8 +239,8 @@ FSM 상태값은 `AGENTS.md` 2장과 동일합니다:
 
 1. `/odom`, `/global_costmap/costmap`, 배터리 토픽 등을 구독해
    `RobotTelemetry` 형태로 변환한 뒤 `/ws/robot` 으로 0.5~1Hz 전송.
-2. YOLOv8 노드가 장애물을 감지하면 이미지 + map 좌표를
-   `POST /api/obstacles` 로 전송.
+2. 장애물이 확실히 보이면 class + 사진(+ map 좌표)을
+   `POST /api/obstacles` 로 전송 (`robot_ws/scripts/obstacle_reporter`, 5.4).
 3. `/ws/robot` 으로 들어오는 `command` 메시지를 받아
    `NavigateToPose` 액션 호출 등으로 변환.
 

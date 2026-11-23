@@ -15,12 +15,12 @@ THRESHOLD_DEFAULTS = dict(
     occupied_threshold=50,                      # OccupancyGrid 점유 판정 기준(1..100)
     robot_radius=math.hypot(0.14, 0.14) / 2,    # 원형 footprint 반지름
     coverage_clearance=0.02,                    # 정지 판정 추가 여유
-    lane_spacing=0.15,                          # sweep 줄 간격
+    lane_spacing=0.25,                          # sweep 줄 간격
     #edited by tky
     #coverage_width=0.15
     coverage_width=0.25,                        # 실제로 덮는 폭(설정값이지 실측값 아님)
     # --- 목표/끝점 허용오차 ---
-    goal_xy_tolerance=0.02,                     # Nav2 goal checker xy_goal_tolerance 상한
+    goal_xy_tolerance=0.05,                     # Nav2 goal checker xy_goal_tolerance 상한
     endpoint_tolerance=0.1,                     # Nav2 성공 후 끝점 허용 거리
     # --- TF / 추적 ---
     tracker_update_period_sec=0.1,              # tick 주기
@@ -37,6 +37,7 @@ THRESHOLD_DEFAULTS = dict(
     max_astar_expansions=500000,
     goal_timeout_sec=120.0,
     # --- 홈 복귀 ---
+    home_max_failures=8,                        # 복귀 시도 연속 실패 한도(실패할 때마다 자체 경로 <-> NavigateToPose 를 번갈아 쓴다)
     home_xy_tolerance=0.1,                      # 복귀 완료로 인정하는 위치 오차(m)
     home_yaw_tolerance=0.4,                     # 복귀 완료로 인정하는 yaw 오차(rad, 약 22.9도)
     home_nav_timeout_sec=300.0,                 # NavigateToPose 한 번의 제한 시간
@@ -52,3 +53,13 @@ CANCEL_GRACE_SEC = 10.0                     # goal_timeout 이후 취소 미확�
 PARAM_SERVICE_TIMEOUT_SEC = 10.0            # controller 파라미터 서비스 응답 한도
 SHUTDOWN_CANCEL_WAIT_SEC = 3.0              # 종료 시 Nav2 취소 확인 대기
 HOME_MAX_SPIN_TRIES = 5                     # 복귀 후 yaw 보정 시도 한도
+OBSTACLE_REFRESH_PERIOD_SEC = 1.0           # 구역을 만들기 위한 map<-odom TF 확인 주기(만든 뒤 중단)
+
+# 장애물 별 청소 불가 구역 반지름(m). 스폰 위치를 중심으로 하는 원의 반지름이며 그대로 쓴다.
+# 로봇 반지름/여유는 traversable_map 이 따로 더한다.
+OBSTACLE_ZONE_RADII_M = dict(
+    power_cable=0.05,
+    cardboard_box=0.05,
+    urine_puddle=0.05,
+)
+OBSTACLE_ZONE_DEFAULT_RADIUS_M = 0.25       # 위 표에 없는 모델 이름

@@ -33,13 +33,19 @@ class Nav2Executor:
         s, p = ctx.state, ctx.params
         if s.action_busy or s.halted or not s.enabled:
             return
-        _, goal = s.legs[0]
+        leg = s.legs[0]
+        _, goal = leg
+        escape = leg in s.escape_legs  # 장애물 구역에서 빠져나오는 구간
         # Planned endpoints retain the extra clearance. The actual robot
         # may use the buffer while tracking back towards that path; applying
         # plan_safe to its measured pose would recreate the original stop.
-        if (not inside(s.plan_safe if p.check_safe_position else s.free,
-                       s.meta.pixel(*goal))
-                or not line_is_safe(pose, goal, s.meta, ctx.area.execution_mask())):
+        if escape:
+            endpoint_mask = s.safe
+        else:
+            endpoint_mask = s.plan_safe if p.check_safe_position else s.free
+        if (not inside(endpoint_mask, s.meta.pixel(*goal))
+                or not line_is_safe(pose, goal, s.meta, ctx.area.execution_mask())
+                or (not escape and ctx.area.leg_hits_zone(pose, goal))):
             s.legs.clear()
             s.pass_in_progress = False
             s.pass_start_count = None
@@ -49,7 +55,7 @@ class Nav2Executor:
             s.legs.popleft()
             return
         s.legs.popleft()
-        s.active_leg = pose, goal
+        s.active_leg, s.active_escape = (pose, goal), escape
         path = self._path([pose, goal])
         self.active_pub.publish(path)
         request = FollowPath.Goal()

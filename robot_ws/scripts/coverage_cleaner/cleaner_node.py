@@ -10,7 +10,8 @@ Context 에 연결하기만 한다. 실제 동작은 각 모듈에 있다.
   계획/수락       plan_manager      (coverage_planner, path_search, leg_splitter, path_message)
   goal checker    goal_checker
   Nav2 실행       nav2_executor     (tracking_diagnostics)
-  홈 복귀         home_return       (home_geometry; 스위치 topic /return_home)
+  홈 복귀         home_return       (home_geometry, route_planner; 스위치 topic /return_home)
+  장애물 구역     obstacle_zones    (스폰 launch 파일 위치 + SDF 반지름 -> 청소 불가 구역)
   완료 판정       pass_completion
   상태/디버그 발행 status_publisher
   서비스          service_handlers
@@ -24,6 +25,7 @@ from nav_msgs.msg import OccupancyGrid, Path
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.time import Time
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
@@ -32,12 +34,15 @@ from tf2_ros import Buffer, TransformListener
 from cleaner_context import Context
 from cleaner_state import CleanerState
 from goal_checker import GoalCheckerConfigurator
+from home_geometry import yaw_from_quaternion
 from home_return import HomeReturn
 from map_updater import MapUpdater
 from nav2_executor import Nav2Executor
+from obstacle_zones import ObstacleZoneInput
 from parameter_loader import load_parameters
 from parameters.node_settings import (COVERAGE_ACTIVE_PATH_TOPIC, COVERAGE_PATH_TOPIC,
                                       COVERAGE_STATUS_TOPIC, DEBUG_MAP_KEYS, NODE_NAME)
+from parameters.thresholds import OBSTACLE_REFRESH_PERIOD_SEC
 from pass_completion import PassCompletion
 from plan_manager import PlanManager
 from planning_area import PlanningArea
@@ -80,6 +85,7 @@ class CoverageCleaner(Node):
 
         # --- 기능 모듈 연결 ---
         ctx.pose_provider = RobotPoseProvider(ctx, self.tf_buffer)
+        ctx.obstacles = ObstacleZoneInput(ctx, self.lookup_transform)
         ctx.map_updater = MapUpdater(ctx)
         ctx.area = PlanningArea(ctx)
         ctx.planner = PlanManager(ctx, path_pub)
@@ -87,7 +93,7 @@ class CoverageCleaner(Node):
         ctx.executor = Nav2Executor(ctx, action, active_pub)
         ctx.status = StatusPublisher(ctx, status_pub, debug_pubs)
         ctx.completion = PassCompletion(ctx)
-        ctx.home = HomeReturn(ctx, navigate_client, spin_client, switch_pub)
+        ctx.home = HomeReturn(ctx, navigate_client, spin_client, switch_pub, action)
         self.handlers = ServiceHandlers(ctx)
         self.ticker = TickController(ctx)
 
@@ -101,11 +107,24 @@ class CoverageCleaner(Node):
                                                         ctx.home.on_switch, switch_qos)
         self.home_pose_sub = self.create_subscription(PoseStamped, params.home_pose_topic,
                                                       ctx.home.on_home_pose, retained)
+        # 장애물 구역: 스폰 launch 파일의 위치를 map 좌표로 바꿔 한 번만 만든다(이후 갱신 없음).
+        self.obstacle_timer = self.create_timer(OBSTACLE_REFRESH_PERIOD_SEC, self.refresh_obstacles)
         self.pause_srv = self.create_service(Trigger, '~/pause', self.handlers.on_pause)
         self.resume_srv = self.create_service(Trigger, '~/resume', self.handlers.on_resume)
         self.reset_srv = self.create_service(Trigger, '~/reset', self.handlers.on_reset)
         self.timer = self.create_timer(params.tracker_update_period_sec, self.ticker.tick)
         log_startup(self.get_logger(), params)
+
+    def refresh_obstacles(self):
+        self.ctx.obstacles.refresh()
+        if self.ctx.obstacles.done:             # 구역이 고정되면 더 이상 확인하지 않는다
+            self.obstacle_timer.cancel()
+
+    def lookup_transform(self, target_frame, source_frame):
+        """최신 TF target <- source 를 (x, y, yaw) 로 돌려준다. 없으면 예외."""
+        t = self.tf_buffer.lookup_transform(target_frame, source_frame, Time()).transform
+        q = t.rotation
+        return t.translation.x, t.translation.y, yaw_from_quaternion(q.x, q.y, q.z, q.w)
 
     def close(self):
         self.state.enabled = False

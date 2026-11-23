@@ -60,6 +60,9 @@ class RobotController extends ChangeNotifier {
   Stream<ObstacleLog> get obstacleAlerts => _alertController.stream;
 
   Future<void> init() async {
+    _seenRevision = config.revision;
+    await config.resolve(); // 입력한 IP 가 비어 있거나 틀려도 서버를 찾는다.
+    _seenBase = config.httpBaseUrl;
     await _refreshInitialState();
     if (_eventSub == null) {
       _eventSub = socket.events.listen(_onWsEvent);
@@ -82,8 +85,10 @@ class RobotController extends ChangeNotifier {
         _shownMapVersion = -1;
         _requestedMapVersion = -1;
       }
-      mapInfo = fetched ?? mapInfo;
-      _syncMapImage();
+      if (fetched != null) {
+        mapInfo = fetched;
+        _syncMapImage();
+      }
       final list = await api.getObstacles();
       _obstacles
         ..clear()
@@ -127,6 +132,11 @@ class RobotController extends ChangeNotifier {
         _obstacles[obstacle.obstacleId] = obstacle;
         notifyListeners();
         break;
+      case 'obstacles_reset':
+        // 새 청소가 시작되어 서버가 지도의 장애물 표시를 모두 내렸다.
+        _obstacles.clear();
+        notifyListeners();
+        break;
       case 'robot_connected':
         robotConnected = true;
         notifyListeners();
@@ -152,11 +162,13 @@ class RobotController extends ChangeNotifier {
     }
   }
 
-  /// [mapInfo]의 버전이 화면에 그려진 것보다 새로우면 이미지를 내려받는다.
+  /// 서버가 알려 준 최신 [mapInfo]가 화면에 그려진 것과 다르면 이미지를 내려받는다.
+  /// 서버의 최신 version 이 기준이다(version 이 "커졌는지"로 판단하지 않는다):
+  /// 서버가 초기화/재시작되어 version 이 되돌아가도 새 지도를 계속 받아야 방문 영역(초록)이 갱신된다.
   void _syncMapImage() {
     final info = mapInfo;
     if (info == null || info.version == _requestedMapVersion) return;
-    if (info.version <= _shownMapVersion) return;
+    if (info.version == _shownMapVersion) return;
     _requestedMapVersion = info.version;
     unawaited(_loadMapImage(info));
   }
@@ -165,8 +177,8 @@ class RobotController extends ChangeNotifier {
     try {
       final bytes =
           await api.downloadMapImage(info.imageUrlFor(config.httpBaseUrl));
-      // 더 새로운 지도가 이미 표시 중이면(응답 순서가 뒤바뀐 경우) 버린다.
-      if (info.version > _shownMapVersion) {
+      // 그 사이 서버가 더 최신 지도를 알려 줬거나 지도가 비워졌다면(응답 순서가 뒤바뀐 경우) 버린다.
+      if (mapInfo?.version == info.version) {
         mapImageBytes = bytes;
         displayedMapInfo = info;
         _shownMapVersion = info.version;
@@ -184,15 +196,29 @@ class RobotController extends ChangeNotifier {
     }
   }
 
+  int _seenRevision = 0;
+  String _seenBase = '';
+
+  /// 설정이 저장됐거나(revision) 실제 접속 주소가 바뀌었을 때(서버를 새로 찾음)만 다시 연결한다.
   void _onConfigChanged() {
+    final saved = config.revision != _seenRevision;
+    if (!saved && config.httpBaseUrl == _seenBase) return;
+    _seenRevision = config.revision;
+    _seenBase = config.httpBaseUrl;
+    unawaited(_reconnect(findServer: saved));
+  }
+
+  Future<void> _reconnect({required bool findServer}) async {
+    if (findServer) {
+      await config.resolve(force: true);
+      _seenBase = config.httpBaseUrl;
+    }
     socket.reconnect();
-    unawaited(_refreshInitialState());
+    await _refreshInitialState();
   }
 
   // -- 사용자 명령 (REQ-SYS-01) -------------------------------------------
   Future<void> startCleaning() => _runCommand(() => api.sendCommand('start_cleaning'));
-
-  Future<void> startMapping() => _runCommand(() => api.sendCommand('start_mapping'));
 
   Future<void> stop() => _runCommand(() => api.sendCommand('stop'));
 
@@ -214,6 +240,8 @@ class RobotController extends ChangeNotifier {
     try {
       await action();
       lastErrorMessage = null;
+    } on RobotNotConnectedException catch (e) {
+      lastErrorMessage = '$e';
     } catch (e) {
       lastErrorMessage = '명령 전송에 실패했습니다: $e';
     }

@@ -11,6 +11,7 @@ import '../models/ws_event.dart';
 ///
 /// 연결이 끊기면 지수 백오프 없이 고정 간격(3초)으로 재접속을 시도한다.
 /// 데모(로컬 LAN)환경에서는 재접속 지연을 짧게 유지하는 것이 더 유리하다.
+/// 재접속 전에는 [AppConfig.resolve] 로 서버 주소를 다시 확인한다(입력한 IP 가 틀려도 서버를 찾는다).
 class RobotSocketService {
   final AppConfig config;
 
@@ -22,6 +23,7 @@ class RobotSocketService {
   Timer? _reconnectTimer;
   bool _disposed = false;
   bool _connected = false;
+  int _attempt = 0; // 이전 시도의 늦은 콜백을 걸러내는 번호
 
   RobotSocketService(this.config);
 
@@ -34,22 +36,28 @@ class RobotSocketService {
     _openChannel();
   }
 
-  void _openChannel() {
+  Future<void> _openChannel() async {
     if (_disposed) return;
     _reconnectTimer?.cancel();
+    final attempt = ++_attempt;
 
     try {
       final channel = WebSocketChannel.connect(Uri.parse(config.wsAppUrl));
       _channel = channel;
+      await channel.ready; // 실제로 연결될 때까지 기다린다(실패하면 예외).
+      if (_disposed || attempt != _attempt) {
+        unawaited(channel.sink.close());
+        return;
+      }
       _subscription = channel.stream.listen(
         _onMessage,
-        onError: (_) => _handleDisconnect(),
-        onDone: _handleDisconnect,
+        onError: (_) => _handleDisconnect(attempt),
+        onDone: () => _handleDisconnect(attempt),
         cancelOnError: true,
       );
       _setConnected(true);
     } catch (_) {
-      _handleDisconnect();
+      _handleDisconnect(attempt);
     }
   }
 
@@ -62,15 +70,22 @@ class RobotSocketService {
     }
   }
 
-  void _handleDisconnect() {
+  void _handleDisconnect(int attempt) {
+    if (attempt != _attempt) return; // 이미 새 시도로 넘어간 오래된 연결
     _setConnected(false);
     _subscription?.cancel();
     _subscription = null;
     _channel = null;
     if (!_disposed) {
       _reconnectTimer?.cancel();
-      _reconnectTimer = Timer(const Duration(seconds: 3), _openChannel);
+      _reconnectTimer = Timer(const Duration(seconds: 3), _retry);
     }
+  }
+
+  Future<void> _retry() async {
+    if (_disposed) return;
+    await config.resolve(); // 주소가 바뀌었거나 입력이 틀렸다면 서버를 다시 찾는다.
+    await _openChannel();
   }
 
   void _setConnected(bool value) {
@@ -81,8 +96,12 @@ class RobotSocketService {
 
   /// 접속 정보(서버 IP)가 바뀌었을 때 강제로 재접속한다.
   void reconnect() {
+    _attempt++;
     _subscription?.cancel();
+    _subscription = null;
     _channel?.sink.close();
+    _channel = null;
+    _setConnected(false);
     _openChannel();
   }
 
