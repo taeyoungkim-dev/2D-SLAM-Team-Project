@@ -1,0 +1,23 @@
+<sdf version="1.6">
+  <model name="urine_puddle">
+    <static>true</static>
+    <link name="body">
+      <visual name="main_patch">
+        <pose>0 0 0.002 0 0 0</pose>
+        <geometry><cylinder><radius>0.115</radius><length>0.002</length></cylinder></geometry>
+        <material>
+          <ambient>0.59 0.47 0.12 1</ambient>
+          <diffuse>0.72 0.60 0.18 1</diffuse>
+        </material>
+      </visual>
+      <visual name="side_patch">
+        <pose>0.10 0.035 0.0024 0 0 0</pose>
+        <geometry><cylinder><radius>0.075</radius><length>0.002</length></cylinder></geometry>
+        <material>
+          <ambient>0.59 0.47 0.12 1</ambient>
+          <diffuse>0.72 0.60 0.18 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
